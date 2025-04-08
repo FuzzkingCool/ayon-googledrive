@@ -5,6 +5,9 @@
 This addon allows AYON to integrate with Google Drive to provide seamless access to shared drives and folders across multiple operating systems.
 
 ## Features
+![ayon-googledrive_tray](https://github.com/user-attachments/assets/7de9df7c-de22-41ea-9dc3-d18d25c0c2c0)
+![ayon-googledrive_addon_settings](https://github.com/user-attachments/assets/d62a50c0-59ae-4ee1-9e68-4e0dd5164549)
+
 
 * **Cross-platform support** for Windows, macOS, and Linux
 * **Automatic drive mapping** to maintain consistent paths across platforms
