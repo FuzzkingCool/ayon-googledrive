@@ -175,3 +175,4 @@ cython_debug/
 /package
 /googledrive-0.1.0
 __pycache__
+*.code-workspace
