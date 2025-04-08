@@ -4,10 +4,7 @@
 			"path": "."
 		},
 		{
-			"path": "../ayon-kitsu"
-		},
-		{
-			"path": "../ayon-traypublisher"
+			"path": "../ayon-applications"
 		}
 	],
 	"settings": {
