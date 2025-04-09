@@ -173,6 +173,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 /package
-/googledrive-0.1.0
+/googledrive-0.2.0
 __pycache__
 *.code-workspace
