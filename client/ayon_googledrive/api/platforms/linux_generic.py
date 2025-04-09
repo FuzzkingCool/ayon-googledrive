@@ -223,7 +223,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                                 os.makedirs(mount_dir, exist_ok=True)
                         
                         # Run the command
-                        self.log.info(f"Starting Google Drive with {name}: {' '.join(cmd)}")
+                        self.log.debug(f"Starting Google Drive with {name}: {' '.join(cmd)}")
                         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         
                         # Give it a moment to start
@@ -296,7 +296,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                 os.chmod(installer_path, 0o755)
                 cmd = ["sudo", installer_path]
                 
-            self.log.info(f"Installing Google Drive with command: {cmd}")
+            self.log.debug(f"Running Google Drive installer: {installer_path}")
             
             # For graphical feedback
             if self.desktop_env == "kde":
@@ -320,7 +320,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                 self._show_notification("Installation Failed", f"Google Drive installation failed: {result.stderr[:100]}...")
                 return False
                 
-            self.log.info("Google Drive installation completed")
+            self.log.debug("Google Drive installation completed")
             self._show_notification("Installation Complete", "Google Drive has been installed successfully.")
             
             # For alternative client installation
@@ -431,7 +431,7 @@ Comment=Mount Google Drive automatically
         
         for path in path_patterns:
             if os.path.exists(path):
-                self.log.info(f"Found source path: {path}")
+                self.log.debug(f"Found source path: {path}")
                 return path
         
         # Additional logging to help diagnose issues
@@ -474,7 +474,7 @@ Comment=Mount Google Drive automatically
                     items = os.listdir(path)
                     drives = [d for d in items if os.path.isdir(os.path.join(path, d))]
                     if drives:
-                        self.log.info(f"Found shared drives at {path}: {drives}")
+                        self.log.debug(f"Found shared drives at {path}: {drives}")
                         return drives
                 except Exception as e:
                     self.log.error(f"Error listing shared drives at {path}: {e}")
@@ -493,7 +493,7 @@ Comment=Mount Google Drive automatically
             if os.path.islink(target_path):
                 current_target = os.readlink(target_path)
                 if current_target == source_path:
-                    self.log.info(f"Symlink already exists correctly: {target_path} -> {source_path}")
+                    self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
                     return True
                 else:
                     # Symlink exists but points elsewhere
@@ -521,7 +521,7 @@ Comment=Mount Google Drive automatically
             # Create symlink
             try:
                 os.symlink(source_path, target_path)
-                self.log.info(f"Created symlink: {target_path} -> {source_path}")
+                self.log.debug(f"Created symlink: {target_path} -> {source_path}")
                 
                 # Create desktop shortcut if mapping name provided
                 if mapping_name:
@@ -566,12 +566,12 @@ Icon=folder-google-drive
             
         # Check if the desired mount already exists correctly
         if os.path.normpath(googledrive_path) == os.path.normpath(desired_mount):
-            self.log.info(f"Google Drive already mounted at desired location: {desired_mount}")
+            self.log.debug(f"Google Drive already mounted at desired location: {desired_mount}")
             return True
             
         # Check if symlink exists and points to the right place
         if os.path.islink(desired_mount) and os.readlink(desired_mount) == googledrive_path:
-            self.log.info(f"Symlink already exists: {desired_mount} -> {googledrive_path}")
+            self.log.debug(f"Symlink already exists: {desired_mount} -> {googledrive_path}")
             return True
             
         # Create symlink if it doesn't exist or points elsewhere
@@ -603,7 +603,7 @@ Icon=folder-google-drive
                     
             # Create the symlink
             os.symlink(googledrive_path, desired_mount)
-            self.log.info(f"Created symlink: {desired_mount} -> {googledrive_path}")
+            self.log.debug(f"Created symlink: {desired_mount} -> {googledrive_path}")
             return True
             
         except Exception as e:
@@ -630,7 +630,7 @@ Icon=folder-google-drive
     def show_admin_instructions(self, source_path, target_path):
         """Show instructions for operations requiring admin privileges"""
         command = f"sudo ln -sf '{source_path}' '{target_path}'"
-        self.log.info(f"To create the symlink, run this command in terminal: {command}")
+        self.log.debug(f"To create the symlink, run this command in terminal: {command}")
         
         message = (f"Google Drive integration requires creating a symlink at {target_path}.\n\n"
                   f"Please run this command in terminal:\n{command}")
@@ -681,7 +681,7 @@ Icon=folder-google-drive
             for mapping in mappings:
                 target = mapping.get("linux_target", "")
                 if target and os.path.exists(target) and os.path.islink(target):
-                    self.log.info(f"Removing symlink: {target}")
+                    self.log.debug(f"Removing symlink: {target}")
                     try:
                         os.unlink(target)
                         

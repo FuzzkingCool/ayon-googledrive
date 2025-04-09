@@ -33,12 +33,12 @@ DEFAULT_GDRIVE_SETTINGS = {
         }
     ],
     "install_googledrive": True,
-    "mount_googledrive": True,
     "download_url": {
         "windows": "https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe",
         "macos": "https://dl.google.com/drive-file-stream/GoogleDrive.dmg",
         "linux": "https://dl.google.com/drive-file-stream/GoogleDrive.deb"
-    }
+    },
+    "show_mount_mismatch_notifications": False   
 }
 
 # Define nested configuration models for better structure
@@ -153,13 +153,13 @@ class GDriveSettings(BaseSettingsModel):
         title="Install Google Drive",
         description="Allow AYON to install Google Drive if not present"
     )
-
-    mount_googledrive: bool = SettingsField(
-        True,
-        title="Mount Google Drive",
-        description="Allow AYON to configure Google Drive mount points"
-    )
     
+    show_mount_mismatch_notifications: bool = SettingsField(
+        False,  # Disabled by default
+        title="Show Mount Point Mismatch Notifications",
+        description="Show notifications when Google Drive is mounted at a different drive letter than configured"
+    )
+
     googledrive_path: GDriveExecutablePaths = SettingsField(
         default_factory=GDriveExecutablePaths,
         title="Google Drive Installation Paths",
@@ -183,4 +183,6 @@ class GDriveSettings(BaseSettingsModel):
         title="Google Drive Download URLs",
         description="URLs to download Google Drive installers"
     )
+
+    
 

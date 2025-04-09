@@ -71,7 +71,7 @@ class GDriveInstaller:
         file_name = os.path.basename(download_url)
         installer_path = os.path.join(self._temp_dir, file_name)
         
-        self.log.info(f"Downloading Google Drive installer from {download_url}")
+        self.log.debug(f"Downloading Google Drive installer from {download_url}")
         
         try:
             # Some environments have SSL certificate issues
@@ -99,13 +99,13 @@ class GDriveInstaller:
                         if current_time - last_time > 1:
                             if file_size > 0:
                                 percent = downloaded * 100 / file_size
-                                self.log.info(f"Downloaded {downloaded / 1024 / 1024:.1f} MB "
+                                self.log.debug(f"Downloaded {downloaded / 1024 / 1024:.1f} MB "
                                              f"({percent:.1f}%)")
                             else:
-                                self.log.info(f"Downloaded {downloaded / 1024 / 1024:.1f} MB")
+                                self.log.debug(f"Downloaded {downloaded / 1024 / 1024:.1f} MB")
                             last_time = current_time
             
-            self.log.info(f"Google Drive installer downloaded to {installer_path}")
+            self.log.debug(f"Google Drive installer downloaded to {installer_path}")
             return installer_path
             
         except urllib.error.URLError as e:

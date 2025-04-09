@@ -76,7 +76,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
             for app_path in app_paths:
                 if os.path.exists(app_path):
-                    self.log.info(f"Starting Google Drive from: {app_path}")
+                    self.log.debug(f"Starting Google Drive from: {app_path}")
                     subprocess.Popen(["open", app_path])
                     return True
                     
@@ -90,7 +90,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         """Install Google Drive on macOS"""
         try:
             # Mount the DMG
-            self.log.info(f"Mounting Google Drive installer DMG: {installer_path}")
+            self.log.debug(f"Mounting Google Drive installer DMG: {installer_path}")
             mount_cmd = ["hdiutil", "attach", installer_path]
             mount_result = subprocess.run(mount_cmd, capture_output=True, text=True)
             
@@ -111,7 +111,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 self.log.error("Could not determine DMG mount point")
                 return False
             
-            self.log.info(f"DMG mounted at: {mount_point}")
+            self.log.debug(f"DMG mounted at: {mount_point}")
             
             # Look for the app within the mounted DMG
             app_name = None
@@ -131,7 +131,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
             # Check if app already exists and needs to be closed
             if os.path.exists(target_app_path):
-                self.log.info(f"Closing existing Google Drive application")
+                self.log.debug(f"Closing existing Google Drive application")
                 # Try to gracefully quit the app
                 try:
                     subprocess.run(
@@ -144,7 +144,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     self.log.warning("Could not gracefully close Google Drive")
             
             # Copy app to Applications folder
-            self.log.info(f"Copying {source_app_path} to /Applications/")
+            self.log.debug(f"Copying {source_app_path} to /Applications/")
             copy_cmd = ["cp", "-r", source_app_path, "/Applications/"]
             copy_result = subprocess.run(copy_cmd, capture_output=True, text=True)
             
@@ -155,10 +155,10 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 return False
             
             # Unmount the DMG
-            self.log.info("Unmounting DMG")
+            self.log.debug("Unmounting DMG")
             subprocess.run(["hdiutil", "detach", mount_point, "-force"], capture_output=True)
             
-            self.log.info("Google Drive installation completed")
+            self.log.debug("Google Drive installation completed")
             return True
             
         except Exception as e:
@@ -188,14 +188,14 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             # Try direct path
             full_path = os.path.join(base_path, clean_path)
             if os.path.exists(full_path):
-                self.log.info(f"Found source path: {full_path}")
+                self.log.debug(f"Found source path: {full_path}")
                 return full_path
                 
             # Try with "Shared drives" prefix if needed
             if "Shared drives" not in clean_path:
                 shared_path = os.path.join(base_path, "Shared drives", clean_path)
                 if os.path.exists(shared_path):
-                    self.log.info(f"Found source path with 'Shared drives' prefix: {shared_path}")
+                    self.log.debug(f"Found source path with 'Shared drives' prefix: {shared_path}")
                     return shared_path
                     
             # Try without "Shared drives" prefix if it's already in the path
@@ -203,14 +203,14 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 no_shared_prefix = clean_path.replace("Shared drives/", "")
                 alt_path = os.path.join(base_path, no_shared_prefix)
                 if os.path.exists(alt_path):
-                    self.log.info(f"Found source path removing 'Shared drives' prefix: {alt_path}")
+                    self.log.debug(f"Found source path removing 'Shared drives' prefix: {alt_path}")
                     return alt_path
                 
             # Try with "Team Drives" as an alternative name
             team_path = os.path.join(base_path, "Team Drives", 
                                     clean_path.replace("Shared drives/", ""))
             if os.path.exists(team_path):
-                self.log.info(f"Found source path using 'Team Drives': {team_path}")
+                self.log.debug(f"Found source path using 'Team Drives': {team_path}")
                 return team_path
                     
         self.log.error(f"Could not locate path '{clean_path}' in Google Drive on macOS")
@@ -234,7 +234,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     self.log.debug(f"Checking for shared drives in: {path}")
                     drives = os.listdir(path)
                     if drives:
-                        self.log.info(f"Found shared drives at {path}: {drives}")
+                        self.log.debug(f"Found shared drives at {path}: {drives}")
                         return drives
                 except Exception as e:
                     self.log.error(f"Error listing shared drives at {path}: {e}")
@@ -253,7 +253,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         for path in base_paths:
             if os.path.exists(path):
-                self.log.info(f"Found Google Drive mount point: {path}")
+                self.log.debug(f"Found Google Drive mount point: {path}")
                 return path
                 
         self.log.debug("Could not find Google Drive mount point")
@@ -270,12 +270,12 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
         # If desired mount is the same as the actual mount, no need to do anything
         if os.path.normpath(googledrive_path) == os.path.normpath(desired_mount):
-            self.log.info(f"Google Drive already mounted at desired location: {desired_mount}")
+            self.log.debug(f"Google Drive already mounted at desired location: {desired_mount}")
             return True
             
         # Check if symlink exists and points to the right place
         if os.path.islink(desired_mount) and os.readlink(desired_mount) == googledrive_path:
-            self.log.info(f"Symlink already exists: {desired_mount} -> {googledrive_path}")
+            self.log.debug(f"Symlink already exists: {desired_mount} -> {googledrive_path}")
             return True
             
         # Create symlink if it doesn't exist or points elsewhere
@@ -283,7 +283,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             # Remove existing symlink if it points elsewhere
             if os.path.exists(desired_mount):
                 if os.path.islink(desired_mount):
-                    self.log.info(f"Removing existing symlink: {desired_mount}")
+                    self.log.debug(f"Removing existing symlink: {desired_mount}")
                     os.unlink(desired_mount)
                 else:
                     self.log.error(f"Path exists but is not a symlink: {desired_mount}")
@@ -293,11 +293,11 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             # Create parent directory if needed
             parent_dir = os.path.dirname(desired_mount)
             if parent_dir and not os.path.exists(parent_dir):
-                self.log.info(f"Creating parent directory: {parent_dir}")
+                self.log.debug(f"Creating parent directory: {parent_dir}")
                 os.makedirs(parent_dir, exist_ok=True)
                     
             # Create the symlink
-            self.log.info(f"Creating symlink: {desired_mount} -> {googledrive_path}")
+            self.log.debug(f"Creating symlink: {desired_mount} -> {googledrive_path}")
             os.symlink(googledrive_path, desired_mount)
             return True
             
@@ -320,7 +320,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             if os.path.islink(target_path):
                 current_target = os.readlink(target_path)
                 if current_target == source_path:
-                    self.log.info(f"Symlink already exists correctly: {target_path} -> {source_path}")
+                    self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
                     return True
                 else:
                     # Symlink exists but points elsewhere
@@ -338,11 +338,11 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             # Check parent directory exists
             parent_dir = os.path.dirname(target_path)
             if parent_dir and not os.path.exists(parent_dir):
-                self.log.info(f"Creating parent directory: {parent_dir}")
+                self.log.debug(f"Creating parent directory: {parent_dir}")
                 os.makedirs(parent_dir, exist_ok=True)
             
             # Create symlink
-            self.log.info(f"Creating symlink: {target_path} -> {source_path}")
+            self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
             os.symlink(source_path, target_path)
             return True
             
@@ -389,7 +389,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             f"Please run this command in Terminal:\n{command}"
         )
         
-        self.log.info(f"Admin privileges required: {command}")
+        self.log.debug(f"Admin privileges required: {command}")
         
         # Try to show a macOS alert
         try:
@@ -432,7 +432,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             for mapping in mappings:
                 target = mapping.get("macos_target", "")
                 if target and os.path.exists(target) and os.path.islink(target):
-                    self.log.info(f"Removing symlink: {target}")
+                    self.log.debug(f"Removing symlink: {target}")
                     try:
                         os.unlink(target)
                     except Exception as e:

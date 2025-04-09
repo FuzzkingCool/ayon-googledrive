@@ -9,6 +9,9 @@ from pathlib import Path
 from .base import GDrivePlatformBase
 from ..lib import run_process, normalize_path, clean_relative_path
 
+from ...ui import notifications 
+
+
 class GDriveWindowsPlatform(GDrivePlatformBase):
     """Windows-specific implementation for Google Drive operations"""
     
@@ -149,14 +152,16 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         
         # Find Google Drive mount point with "Shared drives" folder
         google_drive_letter = None
+        
+        self.log.debug(f"Looking for Google Drive mount with Shared drives folder")
         for drive_letter in drive_letters:
             test_path = f"{drive_letter}:\\"
-            if os.path.exists(test_path):
-                shared_drives_test = os.path.join(test_path, "Shared drives")
-                if os.path.exists(shared_drives_test):
-                    google_drive_letter = drive_letter
-                    self.log.debug(f"Found Google Drive on {drive_letter}:")
-                    break
+            shared_drives_path = os.path.join(test_path, "Shared drives")
+            
+            if os.path.exists(test_path) and os.path.exists(shared_drives_path):
+                self.log.info(f"Found Google Drive mount with Shared drives at {test_path}")
+                google_drive_letter = drive_letter
+                break
         
         if not google_drive_letter:
             self.log.error(f"Could not find Google Drive mount point on any drive letter")
@@ -169,10 +174,9 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         # Log all available shared drives to help with debugging
         if os.path.exists(shared_drives_path):
             try:
-                # Get a list of directories in the shared drives path
                 drives = os.listdir(shared_drives_path)
-                drives = [d for d in drives if os.path.isdir(os.path.join(shared_drives_path, d))]
-                self.log.debug(f"Available shared drives: {drives}")
+                drives = [drive for drive in drives if os.path.isdir(os.path.join(shared_drives_path, drive))]
+                self.log.info(f"Available shared drives: {', '.join(drives)}")
             except Exception as e:
                 self.log.error(f"Error listing shared drives: {e}")
         
@@ -191,7 +195,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         for path in path_variants:
             self.log.debug(f"Checking path variant: {path}")
             if os.path.exists(path):
-                self.log.info(f"Found source path at: {path}")
+                self.log.info(f"Found source path: {path}")
                 return path
         
         self.log.error(f"Could not locate path '{clean_path}' in Google Drive on {google_drive_letter}:")
@@ -288,15 +292,18 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         
         # If drive already at desired letter, all good
         if current_mount == desired_mount:
-            self.log.info(f"Google Drive already mounted at {desired_mount}")
+            self.log.debug(f"Google Drive already mounted at {desired_mount}")
             return True
             
         # We can't actually change the Google Drive mount point from code
-        self.log.warning(
+        notification = (
             f"Google Drive is mounted at {current_mount}, not at desired mount point {desired_mount}. "
-            f"This can only be changed in Google Drive settings."
+            f"It ought to be set to {desired_mount}. This can only be changed in Google Drive settings."
         )
-        return False
+        self.log.warning(f"Google Drive mount point mismatch: {notification}")
+        
+        # Return the mismatch information so the manager can decide what to do
+        return False, current_mount
 
     def alert_drive_in_use(self, drive_letter, current_mapping, desired_mapping):
         """Alert the user that a drive letter is already in use"""

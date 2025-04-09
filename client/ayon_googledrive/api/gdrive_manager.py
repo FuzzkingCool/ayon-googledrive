@@ -50,11 +50,11 @@ class GDriveManager:
     
     def install_googledrive(self):
         """Download and install Google Drive for Desktop silently"""
-        self.log.info("Attempting to install Google Drive for Desktop")
+        self.log.debug("Attempting to install Google Drive for Desktop")
         
         # First check if already installed
         if self.is_googledrive_installed():
-            self.log.info("Google Drive already installed")
+            self.log.debug("Google Drive already installed")
             return True
         
         # Initialize installer and download the installation file
@@ -67,6 +67,7 @@ class GDriveManager:
         
         # Install using platform-specific method
         try:
+            self.log.debug(f"Running Google Drive installer: {installer_path}")
             result = self.platform_handler.install_googledrive(installer_path)
             installer.cleanup()
             return result
@@ -89,10 +90,29 @@ class GDriveManager:
                 
             # First ensure Google Drive is mounted at the right location
             result = self.platform_handler.ensure_mount_point(self._get_desired_mount())
-            if not result:
+            
+            # Handle mount point mismatch notification based on settings
+            if isinstance(result, tuple) and not result[0]:  # Mismatch detected, got (False, current_mount)
+                self.log.warning("Google Drive mount point might not be at the expected location")
+                
+                # Check if we should show notification
+                show_notifications = self.settings.get("show_mount_mismatch_notifications", False)
+                
+                if show_notifications:
+                    from ..ui import notifications
+                    current_mount = result[1]
+                    desired_mount = self._get_desired_mount()
+                    message = (
+                        f"Google Drive is mounted at {current_mount}, not at desired mount point {desired_mount}. "
+                        f"This can only be changed in Google Drive settings."
+                    )
+                    notifications.show_notification(message, "Google Drive Mount Point Mismatch")
+                
+                # Continue anyway - maybe individual mappings will work
+            elif not result:  # Simple False result - something else went wrong
                 self.log.warning("Google Drive mount point might not be at the expected location")
                 # Continue anyway - maybe individual mappings will work
-            
+                
             # Get all configured mappings
             mappings = self._get_mappings()
             
@@ -160,7 +180,7 @@ class GDriveManager:
                 self.log.warning(f"Incomplete mapping definition for '{name}': source={source_path}, target={target}")
                 return False
                 
-            self.log.info(f"Processing mapping '{name}': {source_path} -> {target}")
+            self.log.debug(f"Processing mapping '{name}': {source_path} -> {target}")
             
             # Find the actual source path
             full_source_path = self.platform_handler.find_source_path(source_path)
