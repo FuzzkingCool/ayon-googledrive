@@ -403,7 +403,7 @@ def main(
     """Main entrypoint for package creation."""
     # Get addon details from settings
     addon_name = "googledrive"
-    addon_version = "0.2.0"
+    addon_version = "0.2.3"
     
     # Create bundle directory
     bundle_dir = os.path.join(output_dir or ".", f"{addon_name}-{addon_version}")

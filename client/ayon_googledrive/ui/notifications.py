@@ -51,7 +51,7 @@ def _send_notification(title, message, level):
         app = QtWidgets.QApplication.instance()
         if app and hasattr(app, "trayIcon"):
             _tray_icon = app.trayIcon
-            _logger.debug(f"Found tray icon via app.trayIcon")
+            _logger.debug("Found tray icon via app.trayIcon")
             _tray_icon.showMessage(title, message)
             return
             

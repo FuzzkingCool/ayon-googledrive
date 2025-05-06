@@ -1,33 +1,90 @@
 import os
 import subprocess
 import time
-from pathlib import Path
+import tempfile
 
-from .base import GDrivePlatformBase
-from ..lib import run_process, normalize_path, clean_relative_path
+from ayon_googledrive.api.platforms.base import GDrivePlatformBase
+from ayon_googledrive.api.lib import clean_relative_path, run_process
 
 class GDriveMacOSPlatform(GDrivePlatformBase):
-    """macOS-specific implementation for Google Drive operations"""
+    """Platform-specific handler for macOS."""
+
+    def __init__(self, settings=None):
+        """Initialize the macOS platform handler.
+        
+        Args:
+            settings (dict, optional): Settings dictionary from GDriveManager.
+        """
+        super(GDriveMacOSPlatform, self).__init__()  # Call base class init
+        self.settings = settings  # Add settings attribute
+        self._googledrive_path = None
     
     def is_googledrive_installed(self):
-        """Check if Google Drive is installed on macOS"""
-        # Check multiple possible app names and locations
-        app_paths = [
+        """Check if Google Drive for Desktop is installed on macOS"""
+        # Build list of possible paths
+        possible_paths = []
+        
+        # First check the configured path from settings
+        if hasattr(self, 'settings') and self.settings and 'googledrive_path' in self.settings:
+            macos_path = self.settings['googledrive_path'].get('macos')
+            if macos_path:
+                possible_paths.append(macos_path)
+        
+        # Then add common modern paths first
+        possible_paths.extend([
+            # Modern paths (macOS 15+)
+            "/Applications/Google Drive for desktop.app",
+            "/Applications/Google Drive for Desktop.app",
+        ])
+        
+        # Then add legacy paths
+        possible_paths.extend([
             "/Applications/Google Drive.app",
-            "/Applications/Google Drive File Stream.app"
-        ]
-        return any(os.path.exists(path) for path in app_paths)
+            "/Applications/Google Drive File Stream.app", 
+            "/Applications/GoogleDrive.app",
+            "/Applications/Google/Drive.app",
+            "/Applications/Google/Google Drive.app",
+            "~/Applications/Google Drive.app",
+            "~/Applications/GoogleDrive.app"
+        ])
+        
+        self.log.debug(f"Looking for Google Drive in possible paths: {possible_paths}")
+        
+        # Check if any of the paths exist
+        for path in possible_paths:
+            expanded_path = os.path.expanduser(path)
+            if os.path.exists(expanded_path):
+                self.log.info(f"Found Google Drive installation at: {expanded_path}")
+                # Cache the found path for future use
+                self._googledrive_path = expanded_path
+                return True
+                
+        self.log.warning("Could not find Google Drive installation in any expected location")
+        return False
     
     def is_googledrive_running(self):
-        """Check if Google Drive is currently running on macOS"""
+        """Check if Google Drive for Desktop is running on macOS"""
         try:
-            # Check for both common process names
-            processes_to_check = ["Google Drive", "GoogleDrive", "Google Drive File Stream"]
-            for process in processes_to_check:
-                result = run_process(["pgrep", "-f", process], check=False)
-                if result and result.returncode == 0:
-                    self.log.debug(f"Found running process: {process}")
-                    return True
+            # Use 'ps' to check for Google Drive processes
+            process_names = [
+                "Google Drive", 
+                "GoogleDrive",
+                "Google Drive File Stream",
+                "GoogleDriveFS"
+            ]
+ 
+            # Setup command
+            cmd = ["ps", "-A", "-o", "comm"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+
+            for line in result.stdout.splitlines():
+                for name in process_names:
+                    if name in line:
+                        self.log.debug(f"Found running Google Drive process: {line.strip()}")
+                        return True
+                        
+            # If we get here, no matching process was found
             return False
         except Exception as e:
             self.log.error(f"Error checking if Google Drive is running: {e}")
@@ -66,24 +123,67 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         return False
     
     def start_googledrive(self):
-        """Start Google Drive application on macOS"""
-        try:
-            # Try multiple possible app paths
-            app_paths = [
-                "/Applications/Google Drive.app",
-                "/Applications/Google Drive File Stream.app"
-            ]
-            
-            for app_path in app_paths:
-                if os.path.exists(app_path):
-                    self.log.debug(f"Starting Google Drive from: {app_path}")
-                    subprocess.Popen(["open", app_path])
-                    return True
+        """Start Google Drive on macOS."""
+        
+        # First check if it's installed
+        if not self.is_googledrive_installed():
+            self.log.info("Attempting to install Google Drive automatically")
+            try:
+                # Download and install Google Drive first
+                from ayon_googledrive.gdrive_installer import GDriveInstaller  
+                installer = GDriveInstaller(self.settings)  # Pass settings here
+                installer_path = installer.get_installer_path()
+                if not installer_path:
+                    self.log.error("Failed to download Google Drive installer")
+                    return False
                     
-            self.log.error("Could not find Google Drive application")
-            return False
+                # Call the installer's method - don't use our own implementation
+                success = installer._install_on_macos(installer_path)
+                if not success:
+                    self.log.error("Failed to install Google Drive")
+                    return False
+                    
+                # Clean up temp files
+                installer.cleanup()
+                
+            except Exception as e:
+                self.log.error(f"Error starting Google Drive: {e}")
+                return False
+        
+        # If we have Google Drive, try to start it
+        try:
+            if hasattr(self, '_googledrive_path') and self._googledrive_path:
+                # Use the cached path if we have it
+                app_path = self._googledrive_path
+            else:
+                # Otherwise check common locations
+                possible_paths = [
+                    "/Applications/Google Drive for desktop.app",
+                    "/Applications/Google Drive for Desktop.app",
+                    "/Applications/Google Drive.app",
+                    "/Applications/Google Drive File Stream.app"
+                ]
+                
+                app_path = None
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        app_path = path
+                        break
+                
+                if not app_path:
+                    self.log.error("Could not find Google Drive application")
+                    return False
+            
+            # Start the application
+            self.log.debug(f"Starting Google Drive from: {app_path}")
+            subprocess.run(["open", app_path])
+            
+            # Give it time to start
+            time.sleep(2)
+            return True
+            
         except Exception as e:
-            self.log.error(f"Error starting Google Drive: {e}")
+            self.log.error(f"Failed to start Google Drive: {e}")
             return False
     
     def install_googledrive(self, installer_path):
@@ -131,7 +231,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
             # Check if app already exists and needs to be closed
             if os.path.exists(target_app_path):
-                self.log.debug(f"Closing existing Google Drive application")
+                self.log.debug("Closing existing Google Drive application")
                 # Try to gracefully quit the app
                 try:
                     subprocess.run(
@@ -145,6 +245,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
             # Copy app to Applications folder
             self.log.debug(f"Copying {source_app_path} to /Applications/")
+            
             copy_cmd = ["cp", "-r", source_app_path, "/Applications/"]
             copy_result = subprocess.run(copy_cmd, capture_output=True, text=True)
             
@@ -166,147 +267,226 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             return False
     
     def find_source_path(self, relative_path):
-        """Find the full path to a Google Drive item on macOS"""
-        clean_path = clean_relative_path(relative_path).replace("\\", "/")
+        """Find the full path to a relative path within Google Drive
         
-        # Try common macOS paths for Google Drive
-        base_paths = [
-            "/Volumes/GoogleDrive",
-            "/Volumes/Google Drive",
-            os.path.expanduser("~/Google Drive"),
-            os.path.expanduser("~/Library/CloudStorage/GoogleDrive-[email protected]") # For newer versions
-        ]
+        Args:
+            relative_path (str): A path relative to the Google Drive root
+            
+        Returns:
+            str: The full path to the relative path
+"""
+        self.log.debug(f"Looking for path: {relative_path}")
         
-        self.log.debug(f"Looking for path: {clean_path}")
-        self.log.debug(f"Checking base paths: {base_paths}")
+        # Clean up the path (handle Windows-style paths)
+        if relative_path.startswith('\\'):
+            relative_path = '/' + relative_path.lstrip('\\')
+        relative_path = relative_path.replace('\\', '/')
         
-        for base_path in base_paths:
-            if not os.path.exists(base_path):
-                self.log.debug(f"Base path does not exist: {base_path}")
-                continue
+        # Get all potential Google Drive paths
+        base_paths = self._get_all_gdrive_paths()
+        
+        # Handle special case for Shared drives
+        if "Shared drives" in relative_path or "Shared drives" in relative_path.replace('\\', '/'):
+            drive_name = relative_path.split('/')[-1] if '/' in relative_path else relative_path.split('\\')[-1]
+            
+            for base in base_paths:
+                # Try a few variations of shared drives paths
+                shared_drive_paths = [
+                    os.path.join(base, "Shared drives", drive_name),
+                    os.path.join(base, "Shared drives", drive_name),
+                ]
                 
-            # Try direct path
-            full_path = os.path.join(base_path, clean_path)
-            if os.path.exists(full_path):
-                self.log.debug(f"Found source path: {full_path}")
-                return full_path
-                
-            # Try with "Shared drives" prefix if needed
-            if "Shared drives" not in clean_path:
-                shared_path = os.path.join(base_path, "Shared drives", clean_path)
+                for path in shared_drive_paths:
+                    if os.path.exists(path) and os.path.isdir(path):
+                        self.log.debug(f"Found shared drive at: {path}")
+                        return path
+            
+            # One more check - look for Shared drives in the GoogleDrive mount point
+            gdrive_mount = "/Volumes/GoogleDrive"
+            if os.path.exists(gdrive_mount):
+                shared_path = os.path.join(gdrive_mount, "Shared drives", drive_name)
                 if os.path.exists(shared_path):
-                    self.log.debug(f"Found source path with 'Shared drives' prefix: {shared_path}")
+                    self.log.debug(f"Found shared drive at: {shared_path}")
                     return shared_path
-                    
-            # Try without "Shared drives" prefix if it's already in the path
-            if "Shared drives" in clean_path:
-                no_shared_prefix = clean_path.replace("Shared drives/", "")
-                alt_path = os.path.join(base_path, no_shared_prefix)
-                if os.path.exists(alt_path):
-                    self.log.debug(f"Found source path removing 'Shared drives' prefix: {alt_path}")
-                    return alt_path
-                
-            # Try with "Team Drives" as an alternative name
-            team_path = os.path.join(base_path, "Team Drives", 
-                                    clean_path.replace("Shared drives/", ""))
-            if os.path.exists(team_path):
-                self.log.debug(f"Found source path using 'Team Drives': {team_path}")
-                return team_path
-                    
-        self.log.error(f"Could not locate path '{clean_path}' in Google Drive on macOS")
+            
+            self.log.error(f"Could not locate shared drive '{drive_name}' in any Google Drive mount")
+            return None
+        
+        # Handle regular paths
+        for base in base_paths:
+            full_path = os.path.join(base, relative_path.lstrip('/'))
+            if os.path.exists(full_path):
+                self.log.debug(f"Found path at: {full_path}")
+                return full_path
+        
+        self.log.error(f"Could not locate path '{relative_path}' in any Google Drive mount")
         return None
     
     def list_shared_drives(self):
         """List available shared drives on macOS"""
         drives = []
         
-        # Check common macOS paths for Google Drive
-        base_paths = [
-            "/Volumes/GoogleDrive/Shared drives",
-            "/Volumes/Google Drive/Shared drives",
-            os.path.expanduser("~/Google Drive/Shared drives"),
-            os.path.expanduser("~/Library/CloudStorage/GoogleDrive-[email protected]/Shared drives")
-        ]
+        # Get all potential Google Drive paths
+        base_paths = self._get_all_gdrive_paths()
         
-        for path in base_paths:
-            if os.path.exists(path) and os.path.isdir(path):
+        # Check each base path for shared drives folder
+        for base_path in base_paths:
+            shared_drives_path = os.path.join(base_path, "Shared drives")
+            if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
                 try:
-                    self.log.debug(f"Checking for shared drives in: {path}")
-                    drives = os.listdir(path)
-                    if drives:
-                        self.log.debug(f"Found shared drives at {path}: {drives}")
+                    self.log.debug(f"Checking for shared drives in: {shared_drives_path}")
+                    found_drives = os.listdir(shared_drives_path)
+                    if found_drives:
+                        self.log.debug(f"Found shared drives at {shared_drives_path}: {found_drives}")
+                        # Filter out hidden folders
+                        drives = [d for d in found_drives if not d.startswith('.')]
                         return drives
                 except Exception as e:
-                    self.log.error(f"Error listing shared drives at {path}: {e}")
+                    self.log.error(f"Error listing shared drives at {shared_drives_path}: {e}")
                     
         return drives
-    
-    def find_googledrive_mount(self):
-        """Find the Google Drive mount point on macOS"""
-        # Check common macOS paths for Google Drive
-        base_paths = [
+
+    def _get_all_gdrive_paths(self):
+        """Get all possible Google Drive paths on this system"""
+        paths = []
+        
+        # Check standard paths
+        standard_paths = [
             "/Volumes/GoogleDrive",
-            "/Volumes/Google Drive",
-            os.path.expanduser("~/Google Drive"),
-            os.path.expanduser("~/Library/CloudStorage/GoogleDrive-[email protected]")
+            "/Volumes/Google Drive", 
+            os.path.expanduser("~/Google Drive")
         ]
         
-        for path in base_paths:
-            if os.path.exists(path):
-                self.log.debug(f"Found Google Drive mount point: {path}")
+        for path in standard_paths:
+            if os.path.exists(path) and os.path.isdir(path):
+                paths.append(path)
+        
+        # Check CloudStorage for GoogleDrive folders
+        cloud_storage = os.path.expanduser("~/Library/CloudStorage")
+        if os.path.exists(cloud_storage) and os.path.isdir(cloud_storage):
+            try:
+                for item in os.listdir(cloud_storage):
+                    if item.startswith(("GoogleDrive-", "Google Drive-")):
+                        gdrive_path = os.path.join(cloud_storage, item)
+                        if os.path.isdir(gdrive_path):
+                            self.log.debug(f"Found Google Drive in CloudStorage: {gdrive_path}")
+                            paths.append(gdrive_path)
+            except Exception as e:
+                self.log.error(f"Error checking CloudStorage: {e}")
+                
+        return paths
+
+    def find_googledrive_mount(self):
+        """Find the actual Google Drive mount point on macOS"""
+        self.log.debug("Finding Google Drive mount point")
+        
+        # Check the traditional locations first
+        traditional_paths = [
+            os.path.expanduser("~/Google Drive"),
+            "/Volumes/GoogleDrive"
+        ]
+        
+        for path in traditional_paths:
+            if os.path.exists(path) and os.path.isdir(path):
+                self.log.debug(f"Found traditional Google Drive mount at {path}")
                 return path
                 
-        self.log.debug("Could not find Google Drive mount point")
-        return None
-    
-    def ensure_mount_point(self, desired_mount):
-        """Ensure Google Drive is mounted at the desired location on macOS"""
-        # Find Google Drive mount point
-        googledrive_path = self.find_googledrive_mount()
+        # Check the modern CloudStorage location
+        cloud_storage_base = os.path.expanduser("~/Library/CloudStorage")
+        if (os.path.exists(cloud_storage_base)):
+            self.log.debug(f"Checking for Google Drive in CloudStorage: {cloud_storage_base}")
+            # Look for directories starting with "GoogleDrive-" or "Google Drive-"
+            for item in os.listdir(cloud_storage_base):
+                if item.startswith(("GoogleDrive-", "Google Drive-")):
+                    cloud_drive_path = os.path.join(cloud_storage_base, item)
+                    if os.path.isdir(cloud_drive_path):
+                        self.log.debug(f"Found modern Google Drive mount at {cloud_drive_path}")
+                        return cloud_drive_path
         
-        if not googledrive_path:
-            self.log.error("Google Drive path not found")
+        self.log.warning("Could not find Google Drive mount point")
+        return None
+
+    def ensure_mount_point(self, desired_mount):
+        """Create a symlink from the actual Google Drive location to the desired mount point"""
+        self.log.debug(f"Ensuring Google Drive mount point at {desired_mount}")
+        
+        # Find the actual Google Drive folder
+        actual_drive_path = self.find_googledrive_mount()
+        
+        if not actual_drive_path:
+            self.log.warning("Could not find Google Drive folder to symlink")
             return False
-            
-        # If desired mount is the same as the actual mount, no need to do anything
-        if os.path.normpath(googledrive_path) == os.path.normpath(desired_mount):
-            self.log.debug(f"Google Drive already mounted at desired location: {desired_mount}")
-            return True
-            
-        # Check if symlink exists and points to the right place
-        if os.path.islink(desired_mount) and os.readlink(desired_mount) == googledrive_path:
-            self.log.debug(f"Symlink already exists: {desired_mount} -> {googledrive_path}")
-            return True
-            
-        # Create symlink if it doesn't exist or points elsewhere
-        try:
-            # Remove existing symlink if it points elsewhere
-            if os.path.exists(desired_mount):
-                if os.path.islink(desired_mount):
-                    self.log.debug(f"Removing existing symlink: {desired_mount}")
-                    os.unlink(desired_mount)
+        
+        # Check if mount point already exists and points to the right place
+        if os.path.exists(desired_mount):
+            if os.path.islink(desired_mount):
+                target = os.readlink(desired_mount)
+                if target == actual_drive_path:
+                    self.log.debug(f"Mount point already exists at {desired_mount} and points to {actual_drive_path}")
+                    return True
                 else:
-                    self.log.error(f"Path exists but is not a symlink: {desired_mount}")
-                    self.alert_path_in_use(desired_mount, None, googledrive_path)
-                    return False
-                    
-            # Create parent directory if needed
-            parent_dir = os.path.dirname(desired_mount)
-            if parent_dir and not os.path.exists(parent_dir):
-                self.log.debug(f"Creating parent directory: {parent_dir}")
+                    self.log.warning(f"Mount point {desired_mount} exists but points to {target} instead of {actual_drive_path}")
+                    # Remove the incorrect symlink
+                    try:
+                        os.remove(desired_mount)
+                    except Exception as e:
+                        self.log.error(f"Failed to remove incorrect symlink: {e}")
+                        return False
+            else:
+                self.log.warning(f"Mount point {desired_mount} exists but is not a symlink")
+                return False
+        
+        # Create the parent directory if needed
+        parent_dir = os.path.dirname(desired_mount)
+        if not os.path.exists(parent_dir):
+            try:
                 os.makedirs(parent_dir, exist_ok=True)
-                    
-            # Create the symlink
-            self.log.debug(f"Creating symlink: {desired_mount} -> {googledrive_path}")
-            os.symlink(googledrive_path, desired_mount)
+            except Exception as e:
+                self.log.error(f"Failed to create parent directory {parent_dir}: {e}")
+                return False
+        
+        # Create the symlink using AppleScript to request admin privileges if needed
+        script_content = f'''
+        try
+            do shell script "ln -sf '{actual_drive_path}' '{desired_mount}'"
+            return "Link created successfully"
+        on error
+            try
+                display dialog "AYON needs to create a symbolic link for Google Drive.\\n\\nThis requires administrator privileges." with title "AYON: Configure Google Drive" buttons {{"Cancel", "Create"}} default button "Create"
+                
+                if button returned of result is "Create" then
+                    do shell script "ln -sf '{actual_drive_path}' '{desired_mount}'" with administrator privileges
+                    return "Link created successfully with admin privileges"
+                else
+                    error "Link creation cancelled by user"
+                end if
+            on error errorMsg
+                return "Error: " & errorMsg
+            end try
+        end try
+        '''
+        
+        # Save the script to a temporary file
+        script_path = os.path.join(tempfile.gettempdir(), "ayon_gdrive_link.scpt")
+        with open(script_path, "w") as f:
+            f.write(script_content)
+        
+        # Execute the AppleScript
+        result = run_process(["osascript", script_path])
+        
+        # Clean up
+        if os.path.exists(script_path):
+            os.remove(script_path)
+        
+        if result and result.returncode == 0:
+            self.log.info(f"Successfully created symlink from {actual_drive_path} to {desired_mount}")
             return True
-            
-        except PermissionError:
-            self.log.error(f"Permission denied creating symlink at {desired_mount}")
-            self.show_admin_instructions(googledrive_path, desired_mount)
-            return False
-        except Exception as e:
-            self.log.error(f"Failed to create symlink: {e}")
+        else:
+            error = result.stderr if result else "Unknown error"
+            if "cancelled by user" in error:
+                self.log.warning("Symlink creation cancelled by user")
+            else:
+                self.log.error(f"Failed to create symlink: {error}")
             return False
     
     def create_mapping(self, source_path, target_path, mapping_name=None):
@@ -333,22 +513,72 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 self.alert_path_in_use(target_path, None, source_path)
                 return False
         
-        # Create or update symlink
+        # Try to create the symlink directly first
         try:
-            # Check parent directory exists
+            # Create parent directory if needed
             parent_dir = os.path.dirname(target_path)
-            if parent_dir and not os.path.exists(parent_dir):
-                self.log.debug(f"Creating parent directory: {parent_dir}")
+            if not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
-            
-            # Create symlink
+                
+            # Create the symlink
             self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
             os.symlink(source_path, target_path)
+            self.log.debug(f"Successfully created symlink directly")
             return True
-            
         except PermissionError:
+            # Need admin privileges, try with osascript
+            self.log.debug("Permission error creating symlink directly, will try with admin privileges")
+            
+            # Create AppleScript to request admin privileges
+            script_content = f"""
+            tell application "System Events"
+                set sourceQuoted to "{source_path}"
+                set targetQuoted to "{target_path}"
+                
+                try
+                    display dialog "AYON needs to create a symbolic link for Google Drive.\\n\\nThis requires administrator privileges." with title "AYON: Configure Google Drive" buttons {{"Cancel", "Create"}} default button "Create"
+                    
+                    if button returned of result is "Create" then
+                        do shell script "mkdir -p \\"" & (do shell script "dirname " & quoted form of targetQuoted) & "\\"" with administrator privileges
+                        do shell script "ln -sf \\"" & sourceQuoted & "\\" \\"" & targetQuoted & "\\"" with administrator privileges
+                        return "success"
+                    else
+                        return "cancelled"
+                    end if
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            """
+            
+            # Save the script to a temporary file
+            import tempfile
+            script_path = os.path.join(tempfile.gettempdir(), "ayon_gdrive_symlink.scpt")
+            with open(script_path, "w") as f:
+                f.write(script_content)
+            
+            # Execute the AppleScript
+            result = run_process(["osascript", script_path])
+            
+            # Clean up
+            try:
+                os.remove(script_path)
+            except Exception:
+                pass
+            
+            # Check result
+            if result and result.returncode == 0:
+                if "success" in result.stdout:
+                    self.log.info(f"Successfully created symlink with admin privileges: {target_path} -> {source_path}")
+                    return True
+                elif "cancelled" in result.stdout:
+                    self.log.warning(f"User cancelled symlink creation")
+                    return False
+                else:
+                    self.log.error(f"AppleScript error: {result.stdout}")
+                    
             self.log.error(f"Permission denied creating symlink at {target_path}")
-            self.show_admin_instructions(source_path, target_path)
+            self.log.debug(f"Admin privileges required: sudo ln -sf '{source_path}' '{target_path}'")
             return False
         except Exception as e:
             self.log.error(f"Error creating symlink: {e}")
@@ -424,7 +654,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         try:
             settings = self.addon.settings if hasattr(self, 'addon') else None
             if not settings:
-                from ..lib import get_settings
+                from ayon_googledrive.api.lib import get_settings
                 settings = get_settings()
                 
             mappings = settings.get("mappings", [])
@@ -442,3 +672,81 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         except Exception as e:
             self.log.error(f"Error removing mappings: {e}")
             return False
+
+    def create_symlink(self, source_path, target_path):
+        """Create a symlink with admin privileges if needed"""
+        self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
+        
+        # Check if target already exists and is correct
+        if os.path.exists(target_path):
+            if os.path.islink(target_path):
+                try:
+                    existing_target = os.readlink(target_path)
+                    if existing_target == source_path:
+                        self.log.debug(f"Symlink already exists and is correct at {target_path}")
+                        return True
+                    self.log.debug(f"Symlink exists but points to wrong target: {existing_target}")
+                except Exception as e:
+                    self.log.error(f"Error checking existing symlink: {e}")
+            else:
+                self.log.error(f"Target path exists but is not a symlink: {target_path}")
+                return False
+        
+        # Try creating symlink directly first (will likely fail for /Volumes)
+        try:
+            if os.path.exists(target_path):
+                os.unlink(target_path)
+            os.symlink(source_path, target_path)
+            self.log.debug(f"Created symlink directly: {target_path} -> {source_path}")
+            return True
+        except PermissionError:
+            self.log.debug("Permission error creating symlink directly, will try with admin privileges")
+        except Exception as e:
+            self.log.debug(f"Error creating symlink directly: {e}")
+        
+        # Create a user-friendly notification
+        from PyQt5.QtWidgets import QMessageBox
+        from ayon_googledrive.api import get_main_window
+        
+        msg = QMessageBox(get_main_window())
+        msg.setWindowTitle("Admin Privileges Required")
+        msg.setText("Creating the symlink requires administrator privileges.")
+        msg.setInformativeText(f"To map '{os.path.basename(source_path)}' to '{target_path}', please run this command in Terminal:\n\n" +
+                               f"sudo ln -sf '{source_path}' '{target_path}'")
+        msg.setIcon(QMessageBox.Information)
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
+        
+        # Return False since we couldn't create the symlink automatically
+        return False
+
+    def process_mapping(self, mapping):
+        """Process a single mapping configuration with better error handling"""
+        name = mapping.get("name", "Unknown")
+        source_path = mapping.get("source_path")
+        target_path = mapping.get("macos_target")
+        
+        if not source_path or not target_path:
+            self.log.error(f"Invalid mapping configuration for {name}")
+            return False
+        
+        self.log.debug(f"Processing mapping '{name}': {source_path} -> {target_path}")
+        
+        # Find the full source path in Google Drive
+        full_source_path = self.find_source_path(source_path)
+        
+        if not full_source_path:
+            self.log.error(f"Could not find source path for {source_path}")
+            return False
+            
+        self.log.debug(f"Found shared drive at: {full_source_path}")
+        
+        # Create the symlink
+        success = self.create_symlink(full_source_path, target_path)
+        if not success:
+            # Don't log as error since we've provided instructions to the user
+            self.log.debug(f"Could not automatically create symlink for mapping: {name}")
+            return False
+        
+        self.log.info(f"Mapping '{name}' successfully processed: {target_path} -> {full_source_path}")
+        return True

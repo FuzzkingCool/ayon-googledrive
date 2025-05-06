@@ -4,13 +4,15 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .logger import log
+from ayon_api import get_addon_studio_settings
+
+from ..version import __version__ as version
+from ayon_googledrive.api.logger import log
 
 def get_settings():
     """Get Google Drive settings from AYON"""
-    try:
-        from ayon_core.settings import get_project_settings
-        settings = get_project_settings()
+    try:        
+        settings = get_addon_studio_settings("ayon_googledrive", version)
         return settings.get("ayon_googledrive", {})
     except Exception as e:
         log.warning(f"Failed to get settings from AYON: {e}")

@@ -4,17 +4,25 @@ import ctypes
 import winreg
 import subprocess
 import time
-from pathlib import Path
 
-from .base import GDrivePlatformBase
-from ..lib import run_process, normalize_path, clean_relative_path
+from ayon_googledrive.api.platforms.base import GDrivePlatformBase
+from ayon_googledrive.api.lib import run_process, normalize_path, clean_relative_path
 
-from ...ui import notifications 
+from ayon_googledrive.ui import notifications 
 
 
 class GDriveWindowsPlatform(GDrivePlatformBase):
     """Windows-specific implementation for Google Drive operations"""
     
+    def __init__(self, settings=None):
+        """Initialize the Windows platform handler.
+        
+        Args:
+            settings (dict, optional): Settings dictionary from GDriveManager.
+        """
+        super(GDriveWindowsPlatform, self).__init__()
+        self.settings = settings or {}
+
     def is_googledrive_installed(self):
         """Check if Google Drive is installed on Windows"""
         try:
@@ -153,7 +161,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         # Find Google Drive mount point with "Shared drives" folder
         google_drive_letter = None
         
-        self.log.debug(f"Looking for Google Drive mount with Shared drives folder")
+        self.log.debug("Looking for Google Drive mount with Shared drives folder")
         for drive_letter in drive_letters:
             test_path = f"{drive_letter}:\\"
             shared_drives_path = os.path.join(test_path, "Shared drives")
@@ -164,7 +172,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 break
         
         if not google_drive_letter:
-            self.log.error(f"Could not find Google Drive mount point on any drive letter")
+            self.log.error("Could not find Google Drive mount point on any drive letter")
             return None
         
         # Now try to find the exact shared drive
@@ -424,26 +432,81 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 0  # SW_HIDE
             
-            # Run installer silently
-            process = subprocess.Popen(
-                [installer_path, "--silent"],
-                startupinfo=startupinfo,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            # Setup detailed error handling and logging
+            self.log.info("Starting Google Drive installer process")
             
-            # Wait for installer to finish with timeout
             try:
-                return_code = process.wait(timeout=300)  # 5 minute timeout
-                if return_code == 0:
-                    self.log.info("Google Drive installer completed successfully")
+                # Run installer silently but with better error handling
+                process = subprocess.Popen(
+                    [installer_path, "--silent"],
+                    startupinfo=startupinfo,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                
+                # Wait for installer to finish with timeout
+                try:
+                    stdout, stderr = process.communicate(timeout=300)  # 5 minute timeout
+                    return_code = process.returncode
+                    
+                    # Log any output from the installer
+                    if stdout:
+                        self.log.info(f"Installer stdout: {stdout.decode('utf-8', errors='ignore')}")
+                    if stderr:
+                        self.log.error(f"Installer stderr: {stderr.decode('utf-8', errors='ignore')}")
+                    
+                    if return_code == 0:
+                        self.log.info("Google Drive installer completed successfully")
+                        # Verify installation succeeded
+                        time.sleep(2)  # Give a moment for files to settle
+                        if self.is_googledrive_installed():
+                            self.log.info("Installation verification passed")
+                            return True
+                        else:
+                            self.log.error("Installation appeared to succeed but Google Drive is not detected")
+                            from ayon_googledrive.ui.notifications import show_notification
+                            show_notification(
+                                "Google Drive Installation Error",
+                                "Installation completed but Google Drive was not detected. Please try installing manually.",
+                                level="error"
+                            )
+                            return False
+                    else:
+                        self.log.error(f"Google Drive installer failed with code {return_code}")
+                        from ayon_googledrive.ui.notifications import show_notification
+                        show_notification(
+                            "Google Drive Installation Failed",
+                            f"Installer exited with error code {return_code}. Please try installing manually.",
+                            level="error"
+                        )
+                        return False
+                except subprocess.TimeoutExpired:
+                    self.log.warning("Google Drive installer taking too long - continuing anyway")
+                    process.kill()
+                    from ayon_googledrive.ui.notifications import show_notification
+                    show_notification(
+                        "Google Drive Installation Timeout",
+                        "The installer is taking longer than expected. It may still be running in the background.",
+                        level="warning"
+                    )
                     return True
-                else:
-                    self.log.error(f"Google Drive installer failed with code {return_code}")
-                    return False
-            except subprocess.TimeoutExpired:
-                self.log.warning("Google Drive installer taking too long - continuing anyway")
-                return True
+            except Exception as e:
+                self.log.error(f"Error during installation process: {e}")
+                from ayon_googledrive.ui.notifications import show_notification
+                show_notification(
+                    "Google Drive Installation Error",
+                    f"An error occurred during installation: {str(e)}",
+                    level="error"
+                )
+                return False
                 
         except Exception as e:
             self.log.error(f"Error installing Google Drive: {e}")
+            from ayon_googledrive.ui.notifications import show_notification
+            show_notification(
+                "Google Drive Installation Error",
+                f"An error occurred: {str(e)}",
+                level="error"
+            )
             return False

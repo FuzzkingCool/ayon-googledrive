@@ -8,7 +8,7 @@ from ayon_server.settings import BaseSettingsModel, SettingsField
 DEFAULT_GDRIVE_SETTINGS = {
     "googledrive_path": {
         "windows": "C:\\Program Files\\Google\\Drive File Stream\\",
-        "macos": "/Applications/Google Drive.app",
+        "macos": "/Applications/Google Drive for desktop.app",  # Updated path for macOS 15+
         "linux": "/home/user/Google Drive"
     },
     "googledrive_mount": {
@@ -184,5 +184,5 @@ class GDriveSettings(BaseSettingsModel):
         description="URLs to download Google Drive installers"
     )
 
-    
+
 

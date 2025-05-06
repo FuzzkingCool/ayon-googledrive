@@ -1,5 +1,5 @@
 from ayon_server.addons import BaseServerAddon
-from .settings import GDriveSettings, DEFAULT_GDRIVE_SETTINGS
+from .settings import GDriveSettings, DEFAULT_GDRIVE_SETTINGS  # Use relative import
 
 class GoogleDrive(BaseServerAddon):
     settings_model = GDriveSettings

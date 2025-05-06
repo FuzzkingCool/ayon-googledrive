@@ -3,14 +3,21 @@ import subprocess
 import shutil
 import time
 from pathlib import Path
-from .base import GDrivePlatformBase
-from ..lib import run_process, normalize_path, clean_relative_path
+from ayon_googledrive.api.platforms.base import GDrivePlatformBase
+from ayon_googledrive.api.lib import run_process, normalize_path, clean_relative_path
 
 class GDriveLinuxPlatform(GDrivePlatformBase):
     """Linux platform handler for Google Drive operations"""
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self, settings=None):
+        """Initialize the Linux platform handler.
+        
+        Args:
+            settings (dict, optional): Settings dictionary from GDriveManager.
+        """
+        super(GDriveLinuxPlatform, self).__init__()
+        self.settings = settings  # Store the settings passed from GDriveManager
+ 
         # Detect desktop environment for better UI integration
         self.desktop_env = self._detect_desktop_environment()
         self.log.debug(f"Detected desktop environment: {self.desktop_env}")
@@ -673,7 +680,7 @@ Icon=folder-google-drive
             settings = self.addon.settings if hasattr(self, 'addon') else None
             
             if not settings:
-                from ..lib import get_settings
+                from ayon_googledrive.api.lib import get_settings
                 settings = get_settings()
                 
             mappings = settings.get("mappings", [])

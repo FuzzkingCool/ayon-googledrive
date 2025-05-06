@@ -3,8 +3,8 @@ import platform
 import subprocess
 from qtpy import QtWidgets, QtGui, QtCore
 
-from ..api.logger import log
-from ..api.gdrive_manager import GDriveManager
+from ayon_googledrive.api.logger import log
+
 
 class GDriveMenuBuilder:
     """Class to build and update the Google Drive menu"""
@@ -16,9 +16,7 @@ class GDriveMenuBuilder:
         self._icon_cache = {}  # Cache icons for performance
     
     def _get_icon(self, icon_type):
-        """Get icon for menu items based on type."""
-        from qtpy import QtGui
-        
+        """Get icon for menu items based on type."""  
         # Return from cache if available
         if icon_type in self._icon_cache:
             return self._icon_cache[icon_type]
@@ -111,7 +109,7 @@ class GDriveMenuBuilder:
                 self._set_menu_status(menu, "Google Drive: Connected", "ok")
             else:
                 # Some mappings may have issues
-                self._set_menu_status(menu, "Google Drive: Partial Connection", "warning")
+                self._set_menu_status(menu, "Google Drive: Connection Issue", "warning")
             
             # Add mapping status submenu with direct links to locations
             self._add_mapping_submenu(menu)
@@ -186,7 +184,7 @@ class GDriveMenuBuilder:
         """Add a single drive mapping with status and open folder action"""
         try:
             name = mapping.get("name", "Unnamed")
-            source_path = mapping.get("source_path", "Unknown")
+            # source_path = mapping.get("source_path", "Unknown")
             
             # Get target path based on platform
             os_type = platform.system()
@@ -233,3 +231,22 @@ class GDriveMenuBuilder:
             self.log.debug(f"Opening location: {path}")
         except Exception as e:
             self.log.error(f"Error opening location {path}: {e}")
+
+    def get_menu_items(self):
+        """Get menu items for ITrayService."""
+        from qtpy import QtWidgets
+        
+        menu_items = []
+        
+        # Add loading indicator - will be updated when shown
+        menu_items.append({
+            "label": "Loading Google Drive...",
+            "enabled": False
+        })
+        
+        # Add update function that will be called when menu is about to show
+        menu_items.append({
+            "on_about_to_show": self.update_menu_contents
+        })
+        
+        return menu_items
