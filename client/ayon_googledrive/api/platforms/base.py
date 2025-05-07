@@ -1,4 +1,4 @@
-from ayon_googledrive.api.logger import log
+from ayon_googledrive.logger import log
 
 class GDrivePlatformBase:
     """Base class for platform-specific Google Drive operations"""

@@ -62,7 +62,7 @@ IGNORE_DIR_PATTERNS: List[Pattern] = [
         # Skip directories starting with '.'
         r"^\.",
         # Skip any pycache folders
-        "^__pycache__$"
+        r"^__pycache__$"
     }
 ]
 
@@ -243,8 +243,11 @@ def get_client_files_mapping() -> List[Tuple[str, str]]:
     print(f"Client files in {client_dirpath}:")
     if os.path.exists(client_dirpath):
         for root, dirs, files in os.walk(client_dirpath):
-            for file in files:
-                print(f"  - {os.path.join(root, file)}")
+            for dir in dirs:
+                if _value_match_regexes(dir, IGNORE_DIR_PATTERNS):
+                    continue
+                for file in files:
+                    print(f"  - {os.path.join(root, file)}")
     else:
         print(f"WARNING: Client directory not found at {client_dirpath}")
     
@@ -455,8 +458,13 @@ def main(
     if os.path.isdir("client"):
         bundle_client_dir = os.path.join(bundle_dir, "client")
         os.makedirs(bundle_client_dir, exist_ok=True)
-        for root, _, filenames in os.walk("client"):
+        for root, dirs, filenames in os.walk("client"):
+            # Skip __pycache__ directories
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
             for filename in filenames:
+                # Skip .pyc files
+                if filename.endswith(".pyc"):
+                    continue
                 src = os.path.join(root, filename)
                 dst = os.path.join(
                     bundle_client_dir,

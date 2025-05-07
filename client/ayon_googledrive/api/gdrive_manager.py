@@ -1,10 +1,11 @@
-import platform
 import os
+import platform
 import time
- 
-from ayon_googledrive.gdrive_installer import GDriveInstaller
+
 from ayon_googledrive.api.lib import get_settings
-from ayon_googledrive.api.logger import log
+from ayon_googledrive.gdrive_installer import GDriveInstaller
+from ayon_googledrive.logger import log
+
 
 class GDriveManager():
     """Handles Google Drive validation and path consistency.
@@ -74,11 +75,25 @@ class GDriveManager():
                 self.log.error(f"Error checking installation lock file: {e}")
 
         # Initialize installer and download the installation file
+        from ayon_googledrive.ui.notifications import show_notification
+        show_notification(
+            "Google Drive Required",
+            "Google Drive is required and will now be downloaded for installation. Please wait while the installer is being downloaded...",
+            level="info",
+            unique_id="gdrive_download_start"
+        )
         installer = GDriveInstaller(self.settings)
         installer_path = installer.get_installer_path()
+        self.log.info(f"Installer path: {installer_path}")
 
         if not installer_path:
             self.log.error("Failed to download Google Drive installer")
+            from ayon_googledrive.ui.notifications import show_notification
+            show_notification(
+                "Google Drive Installer Download Failed",
+                "Failed to download Google Drive installer. Please check your internet connection or try again later.",
+                level="error"
+            )
             return False
         
         # Call the appropriate installation method for this platform
@@ -94,6 +109,12 @@ class GDriveManager():
                 success = installer._install_on_macos(installer_path)
             else:
                 self.log.error(f"Unsupported platform: {platform.system()}")
+                from ayon_googledrive.ui.notifications import show_notification
+                show_notification(
+                    "Google Drive Installation Unsupported",
+                    f"Platform {platform.system()} is not supported for automatic installation.",
+                    level="error"
+                )
                 success = False
             
             # Clean up temp files if installation succeeded
@@ -107,6 +128,12 @@ class GDriveManager():
             return success
         except Exception as e:
             self.log.error(f"Error during Google Drive installation: {e}")
+            from ayon_googledrive.ui.notifications import show_notification
+            show_notification(
+                "Google Drive Installation Error",
+                f"An error occurred during installation: {str(e)}\nInstaller path: {installer_path}",
+                level="error"
+            )
             if os.path.exists(lock_file):
                 os.remove(lock_file)
             return False
@@ -229,6 +256,45 @@ class GDriveManager():
         except Exception as e:
             self.log.error(f"Error processing mapping: {e}")
             return False
+
+    def is_googledrive_mounted(self):
+        """Check if Google Drive is mounted and available (platform-specific)."""
+        if self.os_type == "Windows":
+            for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                shared_drives_path = f"{drive_letter}:\\Shared drives"
+                if os.path.exists(shared_drives_path):
+                    return True
+            return False
+        elif self.os_type == "Darwin":
+            # Check /Volumes/GoogleDrive or CloudStorage
+            if os.path.exists("/Volumes/GoogleDrive"):
+                return True
+            cloud_storage = os.path.expanduser("~/Library/CloudStorage")
+            if os.path.exists(cloud_storage):
+                for item in os.listdir(cloud_storage):
+                    if item.startswith(("GoogleDrive-", "Google Drive-")):
+                        gdrive_path = os.path.join(cloud_storage, item)
+                        if os.path.isdir(gdrive_path):
+                            return True
+            return False
+        elif self.os_type == "Linux":
+            # Check common mount points
+            possible_mounts = [
+                "/mnt/google_drive",
+                "/mnt/google-drive",
+                os.path.expanduser("~/google-drive"),
+                os.path.expanduser("~/GoogleDrive"),
+                os.path.expanduser("~/Google Drive")
+            ]
+            for path in possible_mounts:
+                if os.path.exists(path) and os.path.isdir(path):
+                    try:
+                        if os.listdir(path):
+                            return True
+                    except Exception:
+                        continue
+            return False
+        return False
 
     
 

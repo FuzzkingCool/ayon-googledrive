@@ -3,5 +3,6 @@
         "**/__pycache__": true,
         "**/.github": true,
         "**/.vscode": true
-    }
+    },
+    "python.analysis.typeCheckingMode": "off"
 }

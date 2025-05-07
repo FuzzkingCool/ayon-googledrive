@@ -1,15 +1,15 @@
-from pathlib import Path
-import platform
 import os
-import tempfile
-import urllib.request
-import subprocess
-import time
+import platform
 import shutil
+import subprocess
+import tempfile
+import time
+import urllib.request
 
 
-from ayon_googledrive.api.logger import log
 from ayon_googledrive.api.lib import get_settings, run_process
+from ayon_googledrive.logger import log
+
 
 class GDriveInstaller:
     """Downloads and manages Google Drive installers"""

@@ -173,6 +173,19 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 /package
-/googledrive-0.2.0
-__pycache__
+
+#vscode
+**/__pycache__
 *.code-workspace
+**/.vscode
+**/.history
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+
+# packages
+**/googledrive-*
+poetry.lock

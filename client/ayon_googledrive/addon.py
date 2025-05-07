@@ -2,15 +2,17 @@ import os
 import platform
 import threading
 import time
-from qtpy import QtWidgets, QtCore
 
 from ayon_core.addon import AYONAddon, ITrayAddon
+from qtpy import QtCore, QtWidgets
 
-from ayon_googledrive.version import __version__
 from ayon_googledrive.api.gdrive_manager import GDriveManager
-from ayon_googledrive.api.logger import log
+from ayon_googledrive.logger import log
 from ayon_googledrive.ui.menu_builder import GDriveMenuBuilder
 from ayon_googledrive.ui.notifications import show_notification
+from ayon_googledrive.version import __version__
+from ayon_googledrive.constants import ADDON_ROOT
+
 
 class GDriveAddon(AYONAddon, ITrayAddon):
     """Google Drive integration addon for AYON.
@@ -51,9 +53,10 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         self._tray = None
         
         # Auto-start Google Drive if it's installed but not running
-        if self._gdrive_manager.is_googledrive_installed():
-            if not self._gdrive_manager.is_googledrive_running():
-                self._start_googledrive()
+        if self.settings.get("auto_restart_googledrive"):
+            if self._gdrive_manager.is_googledrive_installed():
+                if not self._gdrive_manager.is_googledrive_running():
+                    self._start_googledrive()
             elif self._gdrive_manager.is_user_logged_in():
                 # Setup drive mappings automatically if Google Drive is running and logged in
                 self._gdrive_manager.ensure_consistent_paths()
@@ -64,21 +67,20 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         """Wait for Google Drive to start and then set up mappings."""
         try:
             # Wait for Google Drive to start (up to 30 seconds)
-            for _ in range(30):
+            for _ in range(20):
                 time.sleep(1)
-                if self._gdrive_manager.is_googledrive_running():
+                if self._gdrive_manager.is_googledrive_running(): 
+                    # update ui thread
+                    QtCore.QTimer.singleShot(0, self._update_menu)
                     break
-                    
-            # Wait a bit more for it to fully initialize
-            time.sleep(5)
-            
+  
             # Now check if user is logged in and set up mappings if so
             if self._gdrive_manager.is_user_logged_in():
                 log.debug("Google Drive has started - setting up drive mappings")
                 self._setup_drive_mappings()
                 # No need for a separate thread to verify mappings
             else:
-                log.debug("Google Drive has started but no user is logged in - skipping mapping")
+                log.debug("Google Drive has started but no user is logged in - Please log in with your email.")
                 
         except Exception as e:
             log.error(f"Error in delayed mapping setup: {e}", exc_info=True)
@@ -104,7 +106,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         """Set up drive mappings automatically without user intervention."""
         try:
             # Wait a moment to ensure Google Drive is fully initialized
-            time.sleep(2)
+            time.sleep(1)
             
             # Check if Google Drive is running and user is logged in
             if not self._gdrive_manager.is_googledrive_running():
@@ -278,7 +280,9 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
     def _wait_for_drive_and_map(self):
         """Wait for Google Drive to mount and then set up mappings"""
-        from ayon_googledrive.ui import notifications  # Import at function level to avoid circular imports
+        from ayon_googledrive.ui import (
+            notifications,  # Import at function level to avoid circular imports
+        )
         
         # Define a local show_notification function that uses the imported module
         def show_notification(title, message):
@@ -337,55 +341,46 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
     def _monitor_googledrive(self):
         """Monitor Google Drive status in background thread."""
-        import time
         import os
+        import time
         
-        check_interval = 30  # Check every 30 seconds (more responsive)
-        menu_update_interval = 10  # Update menu every 10 seconds
+        check_interval = 30
+        menu_update_interval = 10
         log.debug("Google Drive monitoring thread started")
 
         menu_update_counter = 0
         retry_count = 0
-        max_retries = 5  # Maximum number of consecutive retries
-        warning_count = 0
-        max_warnings = 5  # Maximum number of warnings before silencing
-        
+        max_retries = 5
+        notified_not_installed = False
+
         while self._monitoring:
             try:
-                # First check if Google Drive is installed before checking other statuses
                 is_installed = self._gdrive_manager.is_googledrive_installed()
-                
+
                 if not is_installed:
-                    # Don't show endless warnings on PC if Google Drive is not installed
-                    if warning_count < max_warnings:
-                        log.warning("Google Drive is not installed")
-                        self._show_direct_notification(
-                            "Google Drive Not Installed",
-                            "Google Drive is not installed. Please install it to use shared drives.",
-                            level="warning"
+                    if not notified_not_installed:
+                        from ayon_googledrive.ui.notifications import show_notification
+                        QtCore.QTimer.singleShot(
+                            25000,
+                            lambda: show_notification(
+                                "Google Drive Not Installed",
+                                "Google Drive is not installed. Please install it to use shared drives.",
+                                level="warning",
+                                unique_id="gdrive_not_installed"
+                            )
                         )
-                        warning_count += 1
-                    elif warning_count == max_warnings:
-                        log.warning("Maximum Google Drive installation warnings reached. Silencing further warnings.")
-                        warning_count += 1
-                        
-                    # Update menu to show installation option
+                        notified_not_installed = True
                     QtCore.QTimer.singleShot(0, self._update_menu)
-                    
-                    # Sleep before next check
                     for _ in range(check_interval):
                         if not self._monitoring:
                             break
                         time.sleep(1)
                     continue
-                
-                # Reset warning counter if installed
-                warning_count = 0
-                    
-                # Now check if process is running
+
+                # Only reach here if installed
+                notified_not_installed = False
+
                 process_running = self._gdrive_manager.is_googledrive_running()
-                
-                # Then check if drives are mounted
                 drive_mounted = False
                 mounted_letter = None
                 if platform.system() == "Windows":
@@ -395,89 +390,65 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                             drive_mounted = True
                             mounted_letter = drive_letter
                             break
-                    
-                    # Log the specific drive letter if found
                     if drive_mounted:
                         log.debug(f"Google Drive mounted at drive letter: {mounted_letter}:")
-                    else:
-                        # Only show notification if retries haven't been exhausted
-                        if retry_count < max_retries:
-                            log.error("Google Drive not mounted at any drive letter!")
-                            show_notification(
-                                "Google Drive Not Mounted", 
-                                "Google Drive is not mounted at any drive letter!",
-                                level="error"
-                            )
-                else:  # macOS or Linux
-                    # Check platform-specific mount points
-                    if platform.system() == "Darwin":  # macOS
+                else:
+                    if platform.system() == "Darwin":
                         if os.path.exists("/Volumes/GoogleDrive"):
                             drive_mounted = True
-                    else:  # Linux
+                    else:
                         if os.path.exists("/mnt/google_drive"):
                             drive_mounted = True
-                
-                # Log the current status
+
                 log.debug(f"Google Drive status check: process={process_running}, drive_mounted={drive_mounted}")
-                
-                # If either check fails, restart Google Drive
+
+                # Only attempt restart logic if installed
                 if not process_running or not drive_mounted:
-                    # Only retry a limited number of times consecutively
                     if retry_count < max_retries:
                         log.warning(f"Google Drive issue detected - process:{process_running}, mounted:{drive_mounted}")
-                        
-                        # Show notification
-                        self._show_direct_notification(
-                            "Google Drive Restarting", 
+                        from ayon_googledrive.ui.notifications import show_notification
+                        show_notification(
+                            "Google Drive Restarting",
                             "Google Drive was closed or not responding and will be restarted automatically.",
-                            level="warning"
+                            level="warning",
+                            unique_id="gdrive_restart"
                         )
-                        
-                        # Restart Google Drive
                         log.warning("Attempting to restart Google Drive")
                         self._gdrive_manager.start_googledrive()
-                        
-                        # Wait for it to start up
                         self._wait_for_drive_and_map()
-                        
                         retry_count += 1
                     else:
-                        # We've reached max retries
                         log.error(f"Failed to restart Google Drive after {max_retries} attempts")
+                        from ayon_googledrive.ui.notifications import show_notification
                         show_notification(
-                            "Google Drive Error", 
+                            "Google Drive Error",
                             f"Failed to restart Google Drive after {max_retries} attempts. Will try again later.",
-                            level="error"
+                            level="error",
+                            unique_id="gdrive_restart_failed"
                         )
-                        # Reset retry counter after a longer wait
-                        time.sleep(5)  # Brief wait before continuing the loop
+                        
                         retry_count = 0
                 else:
-                    # Everything is good, reset retry counter
                     retry_count = 0
-                    
-                    # Verify mappings are still correct if drive is mounted
                     if drive_mounted:
                         self._gdrive_manager.ensure_consistent_paths()
-                
-                # Update menu periodically
+
                 menu_update_counter += 1
                 if menu_update_counter >= menu_update_interval:
                     menu_update_counter = 0
                     QtCore.QTimer.singleShot(0, self._update_menu)
-                    
+
             except Exception as e:
                 log.error(f"Error in Google Drive monitoring thread: {e}")
-                
-            # Sleep properly (1 second at a time) to allow for clean shutdown
+
             for _ in range(check_interval):
                 if not self._monitoring:
                     log.debug("Monitoring flag turned off, exiting loop")
                     break
                 time.sleep(1)
-        
+
         log.debug("Google Drive monitoring thread exiting")
-                
+
     def _show_direct_notification(self, title, message, level="info"):
         """Show notification with guaranteed visibility using multiple methods"""
         try:

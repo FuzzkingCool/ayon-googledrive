@@ -279,6 +279,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
     def install_googledrive(self, installer_path):
         """Install Google Drive on Linux"""
         try:
+            self.log.info(f"Installer path: {installer_path}")
             # Different installation methods depending on the installer type
             if installer_path.endswith(".deb"):
                 # Debian/Ubuntu
@@ -302,41 +303,38 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                 # Assume it's a script or binary installer
                 os.chmod(installer_path, 0o755)
                 cmd = ["sudo", installer_path]
-                
+            
             self.log.debug(f"Running Google Drive installer: {installer_path}")
-            
-            # For graphical feedback
-            if self.desktop_env == "kde":
-                feedback_cmd = ["kdialog", "--progressbar", "Installing Google Drive...", "100"]
-                progress = subprocess.Popen(feedback_cmd, stdout=subprocess.PIPE)
-            elif shutil.which("zenity"):
-                feedback_cmd = ["zenity", "--progress", "--text", "Installing Google Drive...", "--pulsate", "--auto-close"]
-                progress = subprocess.Popen(feedback_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            else:
-                progress = None
-            
-            # Run the installation command
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            # Close progress dialog
-            if progress:
-                progress.terminate()
             
             if result.returncode != 0:
                 self.log.error(f"Installation failed: {result.stderr}")
-                self._show_notification("Installation Failed", f"Google Drive installation failed: {result.stderr[:100]}...")
+                from ayon_googledrive.ui.notifications import show_notification
+                show_notification(
+                    "Google Drive Installation Failed",
+                    f"Google Drive installation failed: {result.stderr[:100]}...\nInstaller path: {installer_path}",
+                    level="error"
+                )
                 return False
-                
-            self.log.debug("Google Drive installation completed")
-            self._show_notification("Installation Complete", "Google Drive has been installed successfully.")
             
+            self.log.debug("Google Drive installation completed")
+            from ayon_googledrive.ui.notifications import show_notification
+            show_notification(
+                "Google Drive Installation Complete",
+                "Google Drive has been installed successfully.",
+                level="info"
+            )
             # For alternative client installation
             self._configure_alternative_client()
-            
             return self._verify_installation()
         except Exception as e:
             self.log.error(f"Error installing Google Drive: {e}")
-            self._show_notification("Installation Error", f"Failed to install Google Drive: {str(e)}")
+            from ayon_googledrive.ui.notifications import show_notification
+            show_notification(
+                "Google Drive Installation Error",
+                f"An error occurred: {str(e)}\nInstaller path: {installer_path}",
+                level="error"
+            )
             return False
     
     def _configure_alternative_client(self):

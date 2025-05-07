@@ -7,7 +7,7 @@ from ayon_server.settings import BaseSettingsModel, SettingsField
  
 DEFAULT_GDRIVE_SETTINGS = {
     "googledrive_path": {
-        "windows": "C:\\Program Files\\Google\\Drive File Stream\\",
+        "windows": "C:\\Program Files\\Google\\Drive File Stream\\*\\",
         "macos": "/Applications/Google Drive for desktop.app",  # Updated path for macOS 15+
         "linux": "/home/user/Google Drive"
     },
@@ -20,19 +20,19 @@ DEFAULT_GDRIVE_SETTINGS = {
         {
             "name": "Projects",
             "source_path": "\\Shared drives\\Projects",
-            "windows_target": "Z:\\",
+            "windows_target": "P:\\",
             "macos_target": "/Volumes/Projects",
             "linux_target": "/mnt/projects"
         },
         {
             "name": "Renders",
             "source_path": "\\Shared drives\\Renders",
-            "windows_target": "Y:\\",
+            "windows_target": "R:\\",
             "macos_target": "/Volumes/Renders",
             "linux_target": "/mnt/renders"
         }
     ],
-    "install_googledrive": True,
+    "install_googledrive": False,
     "download_url": {
         "windows": "https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe",
         "macos": "https://dl.google.com/drive-file-stream/GoogleDrive.dmg",
@@ -148,10 +148,16 @@ class GDriveSettings(BaseSettingsModel):
         description="Enable or disable the Google Drive addon"
     )
     
-    install_googledrive: bool = SettingsField(
+    auto_install_googledrive: bool = SettingsField(
+        False,
+        title="Auto-Install Google Drive",
+        description="Allow AYON to auto-install Google Drive if not present"
+    )
+    
+    auto_restart_googledrive: bool = SettingsField(
         True,
-        title="Install Google Drive",
-        description="Allow AYON to install Google Drive if not present"
+        title="Auto-Restart Google Drive",
+        description="Allow AYON to auto-restart Google Drive if it isn't running"
     )
     
     show_mount_mismatch_notifications: bool = SettingsField(

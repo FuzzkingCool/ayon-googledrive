@@ -1,13 +1,15 @@
 import os
 import platform
 import subprocess
-import tempfile
-from pathlib import Path
+
 
 from ayon_api import get_addon_studio_settings
 
+from ayon_googledrive.logger import log
+
 from ..version import __version__ as version
-from ayon_googledrive.api.logger import log
+
+
 
 def get_settings():
     """Get Google Drive settings from AYON"""

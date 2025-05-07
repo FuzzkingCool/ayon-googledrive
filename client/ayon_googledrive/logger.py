@@ -1,12 +1,21 @@
+import io
 import logging
 import os
 import sys
-import io
 import traceback
 from functools import wraps
 
+# Dynamically determine addon name
+try:
+    # Get addon name from the module path
+    module_path = os.path.dirname(__file__)
+    ADDON_NAME = os.path.basename(module_path)
+except Exception:
+    logging.error(traceback.format_exc())
+    raise Exception("Failed to determine addon's name, is this logger in the addon root?")
+
 # Create a dedicated logs directory
-log_dir = os.path.join(os.path.expanduser("~"), "ayon_logs")
+log_dir = os.path.join(os.path.expanduser("~"), ".ayon/logs")
 try:
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -14,8 +23,18 @@ except Exception:
     pass  # Continue even if directory creation fails
 
 # Get a logger with a unique name
-log = logging.getLogger("ayon.googledrive")
-log.setLevel(logging.DEBUG)
+log = logging.getLogger(f"ayon.{ADDON_NAME}")
+
+# Determine log level
+log_level = os.getenv("AYON_LOG_LEVEL")
+ayon_debug = os.getenv("AYON_DEBUG", False) 
+if ayon_debug:
+    log.setLevel(logging.DEBUG)
+else:
+    if log_level:
+        log.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+    else:
+        log.setLevel(logging.INFO)
 
 # Clear existing handlers
 for handler in log.handlers[:]:
@@ -42,22 +61,23 @@ class SafeStreamHandler(logging.StreamHandler):
             # Never fail on logging
             pass
 
-# Add file handler with robust error handling
-try:
-    file_path = os.path.join(log_dir, "ayon_googledrive_debug.log")
-    file_handler = logging.FileHandler(file_path)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
-    log.addHandler(file_handler)
-except Exception:
-    print(f"Failed to create log file in {log_dir}")
+# Add file handler only if AYON_DEBUG is enabled
+if ayon_debug:
+    try:
+        file_path = os.path.join(log_dir, f"{ADDON_NAME}_debug.log")
+        file_handler = logging.FileHandler(file_path)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.DEBUG)
+        log.addHandler(file_handler)
+    except Exception:
+        print(f"Failed to create log file in {log_dir}")
 
 # Add console handler with explicit stream and error handling
 try:
     stream_handler = SafeStreamHandler(stream=sys.stderr)
     stream_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
-    stream_handler.setLevel(logging.DEBUG)
+    stream_handler.setLevel(logging.DEBUG if ayon_debug else log.level)
     log.addHandler(stream_handler)
 except Exception:
     print("Failed to create console log handler")
@@ -81,4 +101,4 @@ log.error = safe_log(log.error)
 log.critical = safe_log(log.critical)
 
 # Print confirmation that logger is initialized
-print("AYON Google Drive logger initialized successfully")
+print(f"AYON {ADDON_NAME} logger initialized successfully")

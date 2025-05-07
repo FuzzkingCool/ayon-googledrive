@@ -189,6 +189,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
     def install_googledrive(self, installer_path):
         """Install Google Drive on macOS"""
         try:
+            self.log.info(f"Installer path: {installer_path}")
             # Mount the DMG
             self.log.debug(f"Mounting Google Drive installer DMG: {installer_path}")
             mount_cmd = ["hdiutil", "attach", installer_path]
@@ -196,6 +197,12 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
             if mount_result.returncode != 0:
                 self.log.error(f"Failed to mount DMG: {mount_result.stderr}")
+                from ayon_googledrive.ui.notifications import show_notification
+                show_notification(
+                    "Google Drive Installation Failed",
+                    f"Failed to mount DMG. Please try installing manually.\nInstaller path: {installer_path}",
+                    level="error"
+                )
                 return False
             
             # Get the mount point
@@ -209,6 +216,12 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
             if not mount_point:
                 self.log.error("Could not determine DMG mount point")
+                from ayon_googledrive.ui.notifications import show_notification
+                show_notification(
+                    "Google Drive Installation Failed",
+                    f"Could not determine DMG mount point. Please try installing manually.\nInstaller path: {installer_path}",
+                    level="error"
+                )
                 return False
             
             self.log.debug(f"DMG mounted at: {mount_point}")
@@ -219,51 +232,62 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 if item.endswith(".app"):
                     app_name = item
                     break
-                    
+            
             if not app_name:
                 self.log.error("Could not find .app in mounted DMG")
-                # Try to unmount before returning
                 subprocess.run(["hdiutil", "detach", mount_point, "-force"], capture_output=True)
+                from ayon_googledrive.ui.notifications import show_notification
+                show_notification(
+                    "Google Drive Installation Failed",
+                    f"Could not find .app in mounted DMG. Please try installing manually.\nInstaller path: {installer_path}",
+                    level="error"
+                )
                 return False
-                
+            
             source_app_path = os.path.join(mount_point, app_name)
             target_app_path = os.path.join("/Applications", app_name)
             
             # Check if app already exists and needs to be closed
             if os.path.exists(target_app_path):
                 self.log.debug("Closing existing Google Drive application")
-                # Try to gracefully quit the app
                 try:
                     subprocess.run(
-                        ["osascript", "-e", f'tell application "{app_name}" to quit'],
+                        ["osascript", "-e", f'tell application \"{app_name}\" to quit'],
                         capture_output=True, timeout=10
                     )
-                    # Give it a moment to close
                     time.sleep(2)
                 except Exception:
                     self.log.warning("Could not gracefully close Google Drive")
             
             # Copy app to Applications folder
             self.log.debug(f"Copying {source_app_path} to /Applications/")
-            
             copy_cmd = ["cp", "-r", source_app_path, "/Applications/"]
             copy_result = subprocess.run(copy_cmd, capture_output=True, text=True)
             
             if copy_result.returncode != 0:
                 self.log.error(f"Failed to copy app to Applications: {copy_result.stderr}")
-                # Try to unmount before returning
                 subprocess.run(["hdiutil", "detach", mount_point, "-force"], capture_output=True)
+                from ayon_googledrive.ui.notifications import show_notification
+                show_notification(
+                    "Google Drive Installation Failed",
+                    f"Failed to copy app to Applications. Please try installing manually.\nInstaller path: {installer_path}",
+                    level="error"
+                )
                 return False
             
             # Unmount the DMG
             self.log.debug("Unmounting DMG")
             subprocess.run(["hdiutil", "detach", mount_point, "-force"], capture_output=True)
-            
             self.log.debug("Google Drive installation completed")
             return True
-            
         except Exception as e:
             self.log.error(f"Error installing Google Drive: {e}")
+            from ayon_googledrive.ui.notifications import show_notification
+            show_notification(
+                "Google Drive Installation Error",
+                f"An error occurred: {str(e)}\nInstaller path: {installer_path}",
+                level="error"
+            )
             return False
     
     def find_source_path(self, relative_path):

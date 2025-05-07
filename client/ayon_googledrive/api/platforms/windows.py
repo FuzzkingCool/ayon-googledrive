@@ -1,14 +1,14 @@
+import ctypes
 import os
 import re
-import ctypes
-import winreg
 import subprocess
+import threading
 import time
+import glob
 
+from ayon_googledrive.api.lib import clean_relative_path,  run_process
 from ayon_googledrive.api.platforms.base import GDrivePlatformBase
-from ayon_googledrive.api.lib import run_process, normalize_path, clean_relative_path
-
-from ayon_googledrive.ui import notifications 
+from ayon_googledrive.logger import log
 
 
 class GDriveWindowsPlatform(GDrivePlatformBase):
@@ -22,36 +22,27 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         """
         super(GDriveWindowsPlatform, self).__init__()
         self.settings = settings or {}
+        self._installing_lock = threading.Lock()
+        self._installing = False
+
+    @property
+    def installing(self):
+        with self._installing_lock:
+            return self._installing
+
+    def set_installing(self, value: bool):
+        with self._installing_lock:
+            self._installing = value
 
     def is_googledrive_installed(self):
-        """Check if Google Drive is installed on Windows"""
-        try:
-            # Check program files directories
-            program_files_paths = [
-                os.path.join(os.environ.get("ProgramFiles", ""), "Google", "Drive File Stream"),
-                os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Google", "Drive File Stream")
-            ]
-            
-            for base_path in program_files_paths:
-                if os.path.exists(base_path):
-                    self.log.debug(f"Found Google Drive installation at {base_path}")
-                    return True
-                    
-            # Check registry as fallback
-            try:
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
-                                   r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Google Drive") as key:
-                    self.log.debug("Found Google Drive in registry")
-                    return True
-            except FileNotFoundError:
-                self.log.debug("Google Drive not found in registry")
-                
-            return False
-                
-        except Exception as e:
-            self.log.error(f"Error checking if Google Drive is installed: {e}")
-            return False
-    
+        """Check if Google Drive is installed on Windows by checking for the executable in the latest versioned folder."""
+        exe_path = self._get_configured_executable_path()
+        if exe_path and os.path.isfile(exe_path):
+            self.log.debug(f"Found Google Drive executable at: {exe_path}")
+            return True
+        self.log.error(f"Google Drive executable not found at any versioned folder. Last checked: {exe_path}")
+        return False
+
     def is_googledrive_running(self):
         """Check if Google Drive is currently running on Windows"""
         try:
@@ -109,47 +100,72 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             return False
     
     def _find_googledrive_executable(self):
-        """Find the Google Drive executable by locating the latest version folder"""
-        try:
-            base_dirs = [
-                os.path.join(os.environ.get("ProgramFiles", ""), "Google", "Drive File Stream"),
-                os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Google", "Drive File Stream")
-            ]
-            
-            for base_dir in base_dirs:
-                if not os.path.exists(base_dir):
-                    continue
-            
-                # Look for version folders (e.g., "106.0.4.0")
-                version_pattern = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
-                version_dirs = []
-                
-                # Collect all version directories
-                for item in os.listdir(base_dir):
-                    full_path = os.path.join(base_dir, item)
-                    if os.path.isdir(full_path) and version_pattern.match(item):
-                        version_dirs.append((item, full_path))
-                
-                if not version_dirs:
-                    continue
-                
-                # Sort versions and get the latest
-                version_dirs.sort(key=lambda x: [int(n) for n in x[0].split('.') if n.isdigit()], reverse=True)
-                latest_version, latest_dir = version_dirs[0]
-                
-                # Construct path to executable
-                exe_path = os.path.join(latest_dir, "GoogleDriveFS.exe")
-                
-                if os.path.exists(exe_path):
-                    self.log.debug(f"Found Google Drive executable: {exe_path}")
+        """Return the Google Drive executable path, or None if not found."""
+        exe_path = self._get_configured_executable_path()
+        if exe_path and os.path.isfile(exe_path):
+            self.log.debug(f"Found Google Drive executable: {exe_path}")
+            return exe_path
+        self.log.error(f"Google Drive executable not found at any versioned folder. Last checked: {exe_path}")
+        return None
+
+    def _get_configured_executable_path(self):
+        """Get the Google Drive executable path from settings or use the latest versioned folder."""
+        # Prefer settings
+        if self.settings and 'googledrive_path' in self.settings:
+            path = self.settings['googledrive_path'].get('windows')
+            if path:
+                # Handle wildcard in path (e.g., C:\\Program Files\\Google\\Drive File Stream\\*\\)
+                if '*' in path:
+                    # Remove trailing backslash if present
+                    base_glob = path.rstrip('\\/')
+                    # Find all matching directories
+                    matches = glob.glob(base_glob)
+                    version_dirs = []
+                    for match in matches:
+                        if os.path.isdir(match):
+                            # Extract version from folder name
+                            version = os.path.basename(match)
+                            if re.match(r"^\d+\.\d+\.\d+\.\d+$", version):
+                                version_dirs.append((version, match))
+                    if not version_dirs:
+                        log.error(f"No versioned Google Drive folders found matching wildcard: {base_glob}")
+                        return None
+                    # Sort by version number, descending
+                    def version_key(v):
+                        return [int(x) for x in v[0].split('.')]
+                    version_dirs.sort(key=version_key, reverse=True)
+                    latest_version_dir = version_dirs[0][1]
+                    exe_path = os.path.join(latest_version_dir, "GoogleDriveFS.exe")
+                    log.debug(f"Using Google Drive executable from wildcard: {exe_path}")
                     return exe_path
-            
-            self.log.error("Google Drive executable not found")
+                if path.lower().endswith('.exe'):
+                    log.debug(f"Using configured Google Drive path: {path}")
+                    return path
+                candidate = os.path.join(path, "GoogleDriveFS.exe")
+                log.debug(f"Using configured Google Drive folder: {candidate}")
+                return candidate
+        # Default: find latest versioned folder
+        base_dir = r"C:\\Program Files\\Google\\Drive File Stream"
+        if not os.path.isdir(base_dir):
+            log.error(f"Google Drive base directory not found: {base_dir}")
             return None
-        
-        except Exception as e:
-            self.log.error(f"Error finding Google Drive executable: {e}")
+        version_dirs = []
+        for name in os.listdir(base_dir):
+            full_path = os.path.join(base_dir, name)
+            if os.path.isdir(full_path) and re.match(r"^\d+\.\d+\.\d+\.\d+$", name):
+                version_dirs.append((name, full_path))
+        if not version_dirs:
+            log.error(f"No versioned Google Drive folders found in: {base_dir}")
             return None
+        # Sort by version number, descending
+        def version_key(v):
+            return [int(x) for x in v[0].split('.')]
+        version_dirs.sort(key=version_key, reverse=True)
+        log.debug(f"Found Google Drive versioned folders: {[v[0] for v in version_dirs]}")
+        latest_version_dir = version_dirs[0][1]
+        exe_path = os.path.join(latest_version_dir, "GoogleDriveFS.exe")
+        log.debug(f"Using Google Drive executable from latest versioned folder: {exe_path}")
+        return exe_path
     
     def find_source_path(self, relative_path):
         """Find the full path to a Google Drive item on Windows"""
@@ -418,95 +434,98 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             self.log.debug(f"Could not show GUI message: {e}")
             
     def install_googledrive(self, installer_path):
-        """Install Google Drive on Windows"""
+        """Install Google Drive on Windows, with user notification and install-in-progress flag."""
+        from ayon_googledrive.ui.notifications import show_notification
         try:
-            # Check if installer exists
-            if not os.path.exists(installer_path):
+            if not installer_path or not os.path.exists(installer_path):
                 self.log.error(f"Installer not found at {installer_path}")
-                return False
-                
-            self.log.info(f"Running Google Drive installer: {installer_path}")
-            
-            # Run the installer with hidden window
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
-            
-            # Setup detailed error handling and logging
-            self.log.info("Starting Google Drive installer process")
-            
-            try:
-                # Run installer silently but with better error handling
-                process = subprocess.Popen(
-                    [installer_path, "--silent"],
-                    startupinfo=startupinfo,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                show_notification(
+                    "Google Drive Installer Not Found",
+                    f"Installer not found at: {installer_path}",
+                    level="error",
+                    unique_id="gdrive_installer_not_found"
                 )
-                
-                # Wait for installer to finish with timeout
-                try:
-                    stdout, stderr = process.communicate(timeout=300)  # 5 minute timeout
-                    return_code = process.returncode
-                    
-                    # Log any output from the installer
-                    if stdout:
-                        self.log.info(f"Installer stdout: {stdout.decode('utf-8', errors='ignore')}")
-                    if stderr:
-                        self.log.error(f"Installer stderr: {stderr.decode('utf-8', errors='ignore')}")
-                    
-                    if return_code == 0:
-                        self.log.info("Google Drive installer completed successfully")
-                        # Verify installation succeeded
-                        time.sleep(2)  # Give a moment for files to settle
-                        if self.is_googledrive_installed():
-                            self.log.info("Installation verification passed")
-                            return True
-                        else:
-                            self.log.error("Installation appeared to succeed but Google Drive is not detected")
-                            from ayon_googledrive.ui.notifications import show_notification
-                            show_notification(
-                                "Google Drive Installation Error",
-                                "Installation completed but Google Drive was not detected. Please try installing manually.",
-                                level="error"
-                            )
-                            return False
+                return False
+            # Notify user that installation is starting
+            show_notification(
+                "Google Drive Installation",
+                "Google Drive installation is starting. Please follow the installer prompts.",
+                level="info",
+                unique_id="gdrive_install_start"
+            )
+            self.set_installing(True)
+            self.log.info(f"Running Google Drive installer: {installer_path}")
+            try:
+                process = subprocess.Popen(
+                    [installer_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    shell=True
+                )
+                self.log.info("Installer process started, waiting for completion...")
+                stdout, stderr = process.communicate(timeout=300)
+                return_code = process.returncode
+                if stdout:
+                    self.log.info(f"Installer stdout: {stdout.decode('utf-8', errors='ignore')}")
+                if stderr:
+                    self.log.error(f"Installer stderr: {stderr.decode('utf-8', errors='ignore')}")
+                self.log.info(f"Installer return code: {return_code}")
+                if return_code == 0:
+                    self.log.info("Google Drive installer completed successfully")
+                    time.sleep(2)
+                    if self.is_googledrive_installed():
+                        self.log.info("Installation verification passed")
+                        self.set_installing(False)
+                        return True
                     else:
-                        self.log.error(f"Google Drive installer failed with code {return_code}")
-                        from ayon_googledrive.ui.notifications import show_notification
+                        self.log.error("Installation appeared to succeed but Google Drive is not detected")
                         show_notification(
-                            "Google Drive Installation Failed",
-                            f"Installer exited with error code {return_code}. Please try installing manually.",
-                            level="error"
+                            "Google Drive Installation Error",
+                            f"Installation completed but Google Drive was not detected. Please try installing manually as administrator.\nInstaller path: {installer_path}",
+                            level="error",
+                            unique_id="gdrive_install_not_detected"
                         )
+                        self.set_installing(False)
                         return False
-                except subprocess.TimeoutExpired:
-                    self.log.warning("Google Drive installer taking too long - continuing anyway")
-                    process.kill()
-                    from ayon_googledrive.ui.notifications import show_notification
+                else:
+                    self.log.error(f"Google Drive installer failed with code {return_code}")
                     show_notification(
-                        "Google Drive Installation Timeout",
-                        "The installer is taking longer than expected. It may still be running in the background.",
-                        level="warning"
+                        "Google Drive Installation Failed",
+                        f"Installer exited with error code {return_code}. Please try installing manually as administrator.\nInstaller path: {installer_path}",
+                        level="error",
+                        unique_id="gdrive_install_failed"
                     )
-                    return True
+                    self.set_installing(False)
+                    return False
+            except subprocess.TimeoutExpired:
+                self.log.warning("Google Drive installer taking too long - continuing anyway")
+                process.kill()
+                show_notification(
+                    "Google Drive Installation Timeout",
+                    f"The installer is taking longer than expected. It may still be running in the background. If installation does not complete, please run the installer manually as administrator.\nInstaller path: {installer_path}",
+                    level="warning",
+                    unique_id="gdrive_install_timeout"
+                )
+                self.set_installing(False)
+                return True
             except Exception as e:
                 self.log.error(f"Error during installation process: {e}")
-                from ayon_googledrive.ui.notifications import show_notification
                 show_notification(
                     "Google Drive Installation Error",
-                    f"An error occurred during installation: {str(e)}",
-                    level="error"
+                    f"An error occurred during installation: {str(e)}\nPlease try running the installer manually as administrator.\nInstaller path: {installer_path}",
+                    level="error",
+                    unique_id="gdrive_install_exception"
                 )
+                self.set_installing(False)
                 return False
-                
         except Exception as e:
             self.log.error(f"Error installing Google Drive: {e}")
             from ayon_googledrive.ui.notifications import show_notification
             show_notification(
                 "Google Drive Installation Error",
-                f"An error occurred: {str(e)}",
-                level="error"
+                f"An error occurred: {str(e)}\nPlease try running the installer manually as administrator.\nInstaller path: {installer_path}",
+                level="error",
+                unique_id="gdrive_install_outer_exception"
             )
+            self.set_installing(False)
             return False

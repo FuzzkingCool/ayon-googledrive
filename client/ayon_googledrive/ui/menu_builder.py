@@ -3,7 +3,7 @@ import platform
 import subprocess
 from qtpy import QtWidgets, QtGui, QtCore
 
-from ayon_googledrive.api.logger import log
+from ayon_googledrive.logger import log
 
 
 class GDriveMenuBuilder:
