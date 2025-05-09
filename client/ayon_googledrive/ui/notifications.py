@@ -68,7 +68,7 @@ def show_notification(
     # If toastnotify is available, use it and do nothing else
     if _toastnotify_available:
         try:
-            toast_send_notification(title, message, icon=icon_path, crop=False)
+            toast_send_notification(title, message, icon=icon_path)
             return
         except Exception as e:
             log.warning(f"Toastnotify notification failed: {e}")

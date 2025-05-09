@@ -14,7 +14,7 @@ try:
         "GDriveManager"
     )
 except Exception as e:
-    import sys
+ 
     try:
         from ayon_googledrive.logger import log
         log.error(f"ERROR loading ayon_googledrive: {e}")
