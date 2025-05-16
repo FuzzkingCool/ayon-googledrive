@@ -400,7 +400,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                         if os.path.exists("/mnt/google_drive"):
                             drive_mounted = True
 
-                log.debug(f"Google Drive status check: process={process_running}, drive_mounted={drive_mounted}")
+                # log.debug(f"Google Drive status check: process={process_running}, drive_mounted={drive_mounted}")
 
                 # Only attempt restart logic if installed
                 if not process_running or not drive_mounted:

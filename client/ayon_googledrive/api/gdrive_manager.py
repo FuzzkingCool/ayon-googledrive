@@ -242,7 +242,7 @@ class GDriveManager():
                 self.log.warning(f"Incomplete mapping definition for '{name}': source={source_path}, target={target}")
                 return False
 
-            self.log.debug(f"Processing mapping '{name}': {source_path} -> {target}")
+            # self.log.debug(f"Processing mapping '{name}': {source_path} -> {target}")
 
             # Find the actual source path
             full_source_path = self.platform_handler.find_source_path(source_path)

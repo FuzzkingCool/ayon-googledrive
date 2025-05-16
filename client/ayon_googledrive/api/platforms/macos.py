@@ -2,7 +2,7 @@ import os
 import subprocess
 import time
 import tempfile
-
+import traceback
 from ayon_googledrive.api.platforms.base import GDrivePlatformBase
 from ayon_googledrive.api.lib import clean_relative_path, run_process
 
@@ -48,13 +48,13 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             "~/Applications/GoogleDrive.app"
         ])
         
-        self.log.debug(f"Looking for Google Drive in possible paths: {possible_paths}")
+        #self.log.debug(f"Looking for Google Drive in possible paths: {possible_paths}")
         
         # Check if any of the paths exist
         for path in possible_paths:
             expanded_path = os.path.expanduser(path)
             if os.path.exists(expanded_path):
-                self.log.info(f"Found Google Drive installation at: {expanded_path}")
+                # self.log.info(f"Found Google Drive installation at: {expanded_path}")
                 # Cache the found path for future use
                 self._googledrive_path = expanded_path
                 return True
@@ -81,7 +81,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             for line in result.stdout.splitlines():
                 for name in process_names:
                     if name in line:
-                        self.log.debug(f"Found running Google Drive process: {line.strip()}")
+                        # self.log.debug(f"Found running Google Drive process: {line.strip()}")
                         return True
                         
             # If we get here, no matching process was found
@@ -110,16 +110,17 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                         for item in items:
                             item_path = os.path.join(path, item)
                             if os.path.isdir(item_path) and any(c.isdigit() for c in item):
-                                self.log.debug(f"Found Google Drive account data at: {item_path}")
+                                # self.log.debug(f"Found Google Drive account data at: {item_path}")
                                 return True
                     except Exception as e:
                         self.log.debug(f"Error checking directory {path}: {e}")
+                        self.log.debug(traceback.format_exc())
                 else:
                     # For files, existence is enough
                     self.log.debug(f"Found Google Drive user preferences at: {path}")
                     return True
                     
-        self.log.debug("No Google Drive login data found")
+        #self.log.debug("No Google Drive login data found")
         return False
     
     def start_googledrive(self):
@@ -175,7 +176,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     return False
             
             # Start the application
-            self.log.debug(f"Starting Google Drive from: {app_path}")
+            #self.log.debug(f"Starting Google Drive from: {app_path}")
             subprocess.run(["open", app_path])
             
             # Give it time to start
@@ -191,7 +192,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         try:
             self.log.info(f"Installer path: {installer_path}")
             # Mount the DMG
-            self.log.debug(f"Mounting Google Drive installer DMG: {installer_path}")
+            #self.log.debug(f"Mounting Google Drive installer DMG: {installer_path}")
             mount_cmd = ["hdiutil", "attach", installer_path]
             mount_result = subprocess.run(mount_cmd, capture_output=True, text=True)
             
@@ -224,7 +225,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 )
                 return False
             
-            self.log.debug(f"DMG mounted at: {mount_point}")
+            #self.log.debug(f"DMG mounted at: {mount_point}")
             
             # Look for the app within the mounted DMG
             app_name = None
@@ -249,7 +250,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
             # Check if app already exists and needs to be closed
             if os.path.exists(target_app_path):
-                self.log.debug("Closing existing Google Drive application")
+                #self.log.debug("Closing existing Google Drive application")
                 try:
                     subprocess.run(
                         ["osascript", "-e", f'tell application \"{app_name}\" to quit'],
@@ -260,7 +261,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     self.log.warning("Could not gracefully close Google Drive")
             
             # Copy app to Applications folder
-            self.log.debug(f"Copying {source_app_path} to /Applications/")
+            #self.log.debug(f"Copying {source_app_path} to /Applications/")
             copy_cmd = ["cp", "-r", source_app_path, "/Applications/"]
             copy_result = subprocess.run(copy_cmd, capture_output=True, text=True)
             
@@ -276,7 +277,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 return False
             
             # Unmount the DMG
-            self.log.debug("Unmounting DMG")
+            #self.log.debug("Unmounting DMG")
             subprocess.run(["hdiutil", "detach", mount_point, "-force"], capture_output=True)
             self.log.debug("Google Drive installation completed")
             return True
@@ -299,7 +300,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         Returns:
             str: The full path to the relative path
 """
-        self.log.debug(f"Looking for path: {relative_path}")
+        #self.log.debug(f"Looking for path: {relative_path}")
         
         # Clean up the path (handle Windows-style paths)
         if relative_path.startswith('\\'):
@@ -322,7 +323,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 
                 for path in shared_drive_paths:
                     if os.path.exists(path) and os.path.isdir(path):
-                        self.log.debug(f"Found shared drive at: {path}")
+                        #self.log.debug(f"Found shared drive at: {path}")
                         return path
             
             # One more check - look for Shared drives in the GoogleDrive mount point
@@ -330,7 +331,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             if os.path.exists(gdrive_mount):
                 shared_path = os.path.join(gdrive_mount, "Shared drives", drive_name)
                 if os.path.exists(shared_path):
-                    self.log.debug(f"Found shared drive at: {shared_path}")
+                    #self.log.debug(f"Found shared drive at: {shared_path}")
                     return shared_path
             
             self.log.error(f"Could not locate shared drive '{drive_name}' in any Google Drive mount")
@@ -340,7 +341,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         for base in base_paths:
             full_path = os.path.join(base, relative_path.lstrip('/'))
             if os.path.exists(full_path):
-                self.log.debug(f"Found path at: {full_path}")
+                #self.log.debug(f"Found path at: {full_path}")
                 return full_path
         
         self.log.error(f"Could not locate path '{relative_path}' in any Google Drive mount")
@@ -358,10 +359,10 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             shared_drives_path = os.path.join(base_path, "Shared drives")
             if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
                 try:
-                    self.log.debug(f"Checking for shared drives in: {shared_drives_path}")
+                    #self.log.debug(f"Checking for shared drives in: {shared_drives_path}")
                     found_drives = os.listdir(shared_drives_path)
                     if found_drives:
-                        self.log.debug(f"Found shared drives at {shared_drives_path}: {found_drives}")
+                        #self.log.debug(f"Found shared drives at {shared_drives_path}: {found_drives}")
                         # Filter out hidden folders
                         drives = [d for d in found_drives if not d.startswith('.')]
                         return drives
@@ -393,7 +394,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     if item.startswith(("GoogleDrive-", "Google Drive-")):
                         gdrive_path = os.path.join(cloud_storage, item)
                         if os.path.isdir(gdrive_path):
-                            self.log.debug(f"Found Google Drive in CloudStorage: {gdrive_path}")
+                            #self.log.debug(f"Found Google Drive in CloudStorage: {gdrive_path}")
                             paths.append(gdrive_path)
             except Exception as e:
                 self.log.error(f"Error checking CloudStorage: {e}")
@@ -402,7 +403,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
 
     def find_googledrive_mount(self):
         """Find the actual Google Drive mount point on macOS"""
-        self.log.debug("Finding Google Drive mount point")
+        #self.log.debug("Finding Google Drive mount point")
         
         # Check the traditional locations first
         traditional_paths = [
@@ -412,19 +413,19 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         for path in traditional_paths:
             if os.path.exists(path) and os.path.isdir(path):
-                self.log.debug(f"Found traditional Google Drive mount at {path}")
+                #self.log.debug(f"Found traditional Google Drive mount at {path}")
                 return path
                 
         # Check the modern CloudStorage location
         cloud_storage_base = os.path.expanduser("~/Library/CloudStorage")
         if (os.path.exists(cloud_storage_base)):
-            self.log.debug(f"Checking for Google Drive in CloudStorage: {cloud_storage_base}")
+            #self.log.debug(f"Checking for Google Drive in CloudStorage: {cloud_storage_base}")
             # Look for directories starting with "GoogleDrive-" or "Google Drive-"
             for item in os.listdir(cloud_storage_base):
                 if item.startswith(("GoogleDrive-", "Google Drive-")):
                     cloud_drive_path = os.path.join(cloud_storage_base, item)
                     if os.path.isdir(cloud_drive_path):
-                        self.log.debug(f"Found modern Google Drive mount at {cloud_drive_path}")
+                        #self.log.debug(f"Found modern Google Drive mount at {cloud_drive_path}")
                         return cloud_drive_path
         
         self.log.warning("Could not find Google Drive mount point")
@@ -432,7 +433,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
 
     def ensure_mount_point(self, desired_mount):
         """Create a symlink from the actual Google Drive location to the desired mount point"""
-        self.log.debug(f"Ensuring Google Drive mount point at {desired_mount}")
+        #self.log.debug(f"Ensuring Google Drive mount point at {desired_mount}")
         
         # Find the actual Google Drive folder
         actual_drive_path = self.find_googledrive_mount()
@@ -446,7 +447,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             if os.path.islink(desired_mount):
                 target = os.readlink(desired_mount)
                 if target == actual_drive_path:
-                    self.log.debug(f"Mount point already exists at {desired_mount} and points to {actual_drive_path}")
+                    #self.log.debug(f"Mount point already exists at {desired_mount} and points to {actual_drive_path}")
                     return True
                 else:
                     self.log.warning(f"Mount point {desired_mount} exists but points to {target} instead of {actual_drive_path}")
@@ -524,7 +525,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             if os.path.islink(target_path):
                 current_target = os.readlink(target_path)
                 if current_target == source_path:
-                    self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
+                    #self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
                     return True
                 else:
                     # Symlink exists but points elsewhere
@@ -545,13 +546,13 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 os.makedirs(parent_dir, exist_ok=True)
                 
             # Create the symlink
-            self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
+            #self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
             os.symlink(source_path, target_path)
-            self.log.debug(f"Successfully created symlink directly")
+            #self.log.debug(f"Successfully created symlink directly")
             return True
         except PermissionError:
             # Need admin privileges, try with osascript
-            self.log.debug("Permission error creating symlink directly, will try with admin privileges")
+            #self.log.debug("Permission error creating symlink directly, will try with admin privileges")
             
             # Create AppleScript to request admin privileges
             script_content = f"""
@@ -602,7 +603,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     self.log.error(f"AppleScript error: {result.stdout}")
                     
             self.log.error(f"Permission denied creating symlink at {target_path}")
-            self.log.debug(f"Admin privileges required: sudo ln -sf '{source_path}' '{target_path}'")
+            #self.log.debug(f"Admin privileges required: sudo ln -sf '{source_path}' '{target_path}'")
             return False
         except Exception as e:
             self.log.error(f"Error creating symlink: {e}")
@@ -643,7 +644,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             f"Please run this command in Terminal:\n{command}"
         )
         
-        self.log.debug(f"Admin privileges required: {command}")
+        #self.log.debug(f"Admin privileges required: {command}")
         
         # Try to show a macOS alert
         try:
@@ -686,7 +687,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             for mapping in mappings:
                 target = mapping.get("macos_target", "")
                 if target and os.path.exists(target) and os.path.islink(target):
-                    self.log.debug(f"Removing symlink: {target}")
+                    #self.log.debug(f"Removing symlink: {target}")
                     try:
                         os.unlink(target)
                     except Exception as e:
@@ -699,7 +700,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
 
     def create_symlink(self, source_path, target_path):
         """Create a symlink with admin privileges if needed"""
-        self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
+        #self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
         
         # Check if target already exists and is correct
         if os.path.exists(target_path):
@@ -707,9 +708,9 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 try:
                     existing_target = os.readlink(target_path)
                     if existing_target == source_path:
-                        self.log.debug(f"Symlink already exists and is correct at {target_path}")
+                        #self.log.debug(f"Symlink already exists and is correct at {target_path}")
                         return True
-                    self.log.debug(f"Symlink exists but points to wrong target: {existing_target}")
+                    #self.log.debug(f"Symlink exists but points to wrong target: {existing_target}")
                 except Exception as e:
                     self.log.error(f"Error checking existing symlink: {e}")
             else:
@@ -721,7 +722,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             if os.path.exists(target_path):
                 os.unlink(target_path)
             os.symlink(source_path, target_path)
-            self.log.debug(f"Created symlink directly: {target_path} -> {source_path}")
+            #self.log.debug(f"Created symlink directly: {target_path} -> {source_path}")
             return True
         except PermissionError:
             self.log.debug("Permission error creating symlink directly, will try with admin privileges")
@@ -754,7 +755,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             self.log.error(f"Invalid mapping configuration for {name}")
             return False
         
-        self.log.debug(f"Processing mapping '{name}': {source_path} -> {target_path}")
+        #self.log.debug(f"Processing mapping '{name}': {source_path} -> {target_path}")
         
         # Find the full source path in Google Drive
         full_source_path = self.find_source_path(source_path)
@@ -763,13 +764,13 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             self.log.error(f"Could not find source path for {source_path}")
             return False
             
-        self.log.debug(f"Found shared drive at: {full_source_path}")
+        #self.log.debug(f"Found shared drive at: {full_source_path}")
         
         # Create the symlink
         success = self.create_symlink(full_source_path, target_path)
         if not success:
             # Don't log as error since we've provided instructions to the user
-            self.log.debug(f"Could not automatically create symlink for mapping: {name}")
+            #self.log.debug(f"Could not automatically create symlink for mapping: {name}")
             return False
         
         self.log.info(f"Mapping '{name}' successfully processed: {target_path} -> {full_source_path}")
