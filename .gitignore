@@ -186,7 +186,7 @@ cython_debug/
 *.pyz
 *.pywz
 
-# packages
+# AYON Addon Workspace
+**/packages
 **/googledrive-*
 poetry.lock
-/_Reference

@@ -1,17 +1,15 @@
 import ctypes
+import glob
 import os
 import re
 import subprocess
 import threading
 import time
-import glob
 
-from ayon_googledrive.api.lib import clean_relative_path,  run_process
+from ayon_googledrive.api.lib import clean_relative_path, run_process
 from ayon_googledrive.api.platforms.base import GDrivePlatformBase
 from ayon_googledrive.logger import log
 
-# Add this import for Qt
-from qtpy import QtWidgets
 
 class GDriveWindowsPlatform(GDrivePlatformBase):
     """Windows-specific implementation for Google Drive operations"""
@@ -262,22 +260,35 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
 
             if any(name in clean_path for name in self.shared_drives_names):
                 # This is a path expected to be *inside* a "Shared Drives" type folder
-                # Extract the part of clean_path that comes *after* a "Shared drives" name variant
                 actual_item_name = clean_path
+                # Iterate through shared drive name variants and separators to strip the prefix
+                # Example: clean_path = "Shared drives\MyProject", sd_name_variant = "Shared drives", sep = "\"
+                # We want actual_item_name = "MyProject"
                 for sd_name_variant in self.shared_drives_names:
-                    # Try to split by variants like "\Shared drives\" or "/Shared drives/"
-                    # Need to handle path separators carefully
                     for sep in ['\\', '/']:
-                        marker = sep + sd_name_variant + sep
-                        if marker in actual_item_name:
-                            actual_item_name = actual_item_name.split(marker, 1)[-1]
-                            break # Found the marker
-                    else:
-                        continue # Marker not found with this separator, try next sd_name_variant
-                    break # Marker found, actual_item_name is updated
+                        prefix_to_check = sd_name_variant + sep
+                        if actual_item_name.startswith(prefix_to_check):
+                            actual_item_name = actual_item_name[len(prefix_to_check):]
+                            break  # Prefix found and stripped for this sd_name_variant
+                    else: # Inner loop didn't break
+                        # If actual_item_name was not stripped by "variant + sep",
+                        # check if it's equal to the variant itself (e.g. clean_path is "Shared drives" and variant is "Shared drives")
+                        # In this case, the actual item name should be empty, as we are looking for the content of "Shared drives"
+                        if actual_item_name == sd_name_variant:
+                            actual_item_name = ""
+                            break # Item is the shared drive folder itself
+                        continue # Try next sd_name_variant
+                    break # Outer loop break if prefix stripped or item is the folder itself
                 
-                # If base_path_to_search is already G:\Shared drives, then path is base_path_to_search + actual_item_name
-                # If base_path_to_search is G:\, then path is base_path_to_search + sd_name + actual_item_name (looping sd_name)
+                # If, after attempting to strip, actual_item_name still contains a shared drive name at the beginning
+                # (e.g. clean_path was "SharedDrivesFolderName" and sd_name_variant was "Shared Drives" - no match)
+                # but the base_path_to_search *is* a shared drive folder,
+                # we might have a direct reference to a shared drive.
+                # However, the original logic to split by "marker = sep + sd_name_variant + sep" was more for deeper paths.
+                # The new prefix stripping should handle most cases.
+                # The critical part is that if base_path_to_search is like "I:\Shared drives",
+                # and clean_path was "Shared drives\Projects", actual_item_name should now be "Projects".
+
                 if is_shared_drives_folder_itself:
                     path_variant = os.path.join(base_path_to_search, actual_item_name)
                     self.log.debug(f"Checking path variant (direct shared folder): {path_variant}")
@@ -434,13 +445,17 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         if current_mount == desired_mount:
             self.log.debug(f"Google Drive already mounted at {desired_mount}")
             return True
+        
+        show_notifications = self.settings.get("show_mount_mismatch_notifications", False)
+        if show_notifications:
+            # We can't actually change the Google Drive mount point from code
+            notification = (
+                f"Google Drive is mounted at {current_mount}, not at desired mount point {desired_mount}. "
+                f"It ought to be set to {desired_mount}. This can only be changed in Google Drive settings."
+            )
             
-        # We can't actually change the Google Drive mount point from code
-        notification = (
-            f"Google Drive is mounted at {current_mount}, not at desired mount point {desired_mount}. "
-            f"It ought to be set to {desired_mount}. This can only be changed in Google Drive settings."
-        )
-        self.log.warning(f"Google Drive mount point mismatch: {notification}")
+            self.log.warning(f"Google Drive mount point mismatch: {notification}")
+        
         
         # Return the mismatch information so the manager can decide what to do
         return False, current_mount
