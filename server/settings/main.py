@@ -166,6 +166,12 @@ class GDriveSettings(BaseSettingsModel):
         description="Show notifications when Google Drive is mounted at a different drive letter than configured"
     )
 
+    keep_symlinks_on_exit: bool = SettingsField(
+        True,
+        title="Keep Symlinks on Exit (MacOS)",
+        description="Keep symlinks on exit (MacOS only)"
+    )
+    
     googledrive_path: GDriveExecutablePaths = SettingsField(
         default_factory=GDriveExecutablePaths,
         title="Google Drive Installation Paths",

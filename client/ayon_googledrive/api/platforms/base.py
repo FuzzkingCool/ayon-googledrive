@@ -1,10 +1,24 @@
 from ayon_googledrive.logger import log
+from qtpy import QtWidgets
+import os
 
 class GDrivePlatformBase:
+    shared_drives_names = [
+        "Shared drives",  # English
+        "Shared Drives",  # English (alternative capitalization)
+        "Drive partages",  # French
+        "Compartidos conmigo",  # Spanish
+        "Geteilte Ablagen",  # German
+        "Condivisi con me",  # Italian
+        "Gedeelde drives",  # Dutch
+        # Add more translations as needed
+    ]
+
     """Base class for platform-specific Google Drive operations"""
     
     def __init__(self):
         self.log = log
+        self._shared_drives_path_override = None
     
     def is_googledrive_installed(self):
         """Check if Google Drive is installed on this platform"""
@@ -66,3 +80,35 @@ class GDrivePlatformBase:
     def show_admin_instructions(self, source_path, target_path):
         """Show instructions for operations requiring admin privileges"""
         raise NotImplementedError("Subclasses must implement this method")
+
+    def _prompt_user_for_shared_drives_path(self):
+        """Prompt the user to select their 'Shared Drives' folder."""
+        app = QtWidgets.QApplication.instance()
+        if not app:
+            app = QtWidgets.QApplication([])
+
+        dialog = QtWidgets.QFileDialog()
+        dialog.setFileMode(QtWidgets.QFileDialog.Directory)
+        dialog.setOption(QtWidgets.QFileDialog.ShowDirsOnly, True)
+        dialog.setWindowTitle("Select Your Google Shared Drives Folder")
+        dialog.setLabelText(QtWidgets.QFileDialog.Accept, "Select Folder")
+        
+        start_path = "~"
+        if hasattr(self, 'os_type'): # Check if os_type is available for platform-specific paths
+            if self.os_type == "Darwin":
+                start_path = os.path.expanduser("~/Library/CloudStorage/")
+            elif self.os_type == "Windows":
+                start_path = os.path.expanduser("~") # Default to home for Windows, can be refined
+        
+        start_path = os.path.expanduser(start_path)
+        if not os.path.exists(start_path):
+            start_path = os.path.expanduser("~") # Fallback to home
+
+        dialog.setDirectory(start_path)
+
+        if dialog.exec_():
+            selected_path = dialog.selectedFiles()
+            if selected_path:
+                self.log.info(f"User selected path: {selected_path[0]}")
+                return selected_path[0]
+        return None

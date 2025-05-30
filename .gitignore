@@ -189,3 +189,4 @@ cython_debug/
 # packages
 **/googledrive-*
 poetry.lock
+/_Reference

@@ -1,10 +1,14 @@
+import errno
+import json
 import os
 import subprocess
-import time
 import tempfile
+import time
 import traceback
+
+from ayon_googledrive.api.lib import run_process
 from ayon_googledrive.api.platforms.base import GDrivePlatformBase
-from ayon_googledrive.api.lib import clean_relative_path, run_process
+
 
 class GDriveMacOSPlatform(GDrivePlatformBase):
     """Platform-specific handler for macOS."""
@@ -15,9 +19,11 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         Args:
             settings (dict, optional): Settings dictionary from GDriveManager.
         """
-        super(GDriveMacOSPlatform, self).__init__()  # Call base class init
-        self.settings = settings  # Add settings attribute
+        super(GDriveMacOSPlatform, self).__init__()
+        self.settings = settings
         self._googledrive_path = None
+        self.os_type = "Darwin" # Add os_type for base class to use
+        self._shared_drives_path_override = None
     
     def is_googledrive_installed(self):
         """Check if Google Drive for Desktop is installed on macOS"""
@@ -131,7 +137,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             self.log.info("Attempting to install Google Drive automatically")
             try:
                 # Download and install Google Drive first
-                from ayon_googledrive.gdrive_installer import GDriveInstaller  
+                from ayon_googledrive.gdrive_installer import GDriveInstaller
                 installer = GDriveInstaller(self.settings)  # Pass settings here
                 installer_path = installer.get_installer_path()
                 if not installer_path:
@@ -299,7 +305,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             
         Returns:
             str: The full path to the relative path
-"""
+        """
         #self.log.debug(f"Looking for path: {relative_path}")
         
         # Clean up the path (handle Windows-style paths)
@@ -311,30 +317,54 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         base_paths = self._get_all_gdrive_paths()
         
         # Handle special case for Shared drives
-        if "Shared drives" in relative_path or "Shared drives" in relative_path.replace('\\', '/'):
+        # Define a list of known "Shared Drives" folder names in different languages
+        shared_drives_names = [
+            "Shared drives",  # English
+            "Shared Drives",  # English (alternative capitalization)
+            "Drive partages",  # French
+            "Compartidos conmigo",  # Spanish
+            "Geteilte Ablagen",  # German
+            "Condivisi con me",  # Italian
+            "Gedeelde drives",  # Dutch
+            # Add more translations as needed
+        ]
+
+        if any(name in relative_path for name in shared_drives_names):
             drive_name = relative_path.split('/')[-1] if '/' in relative_path else relative_path.split('\\')[-1]
             
+            if self._shared_drives_path_override and os.path.exists(os.path.join(self._shared_drives_path_override, drive_name)):
+                self.log.debug(f"Using user-defined Shared Drives path: {self._shared_drives_path_override}")
+                return os.path.join(self._shared_drives_path_override, drive_name)
+
             for base in base_paths:
-                # Try a few variations of shared drives paths
-                shared_drive_paths = [
-                    os.path.join(base, "Shared drives", drive_name),
-                    os.path.join(base, "Shared drives", drive_name),
-                ]
-                
-                for path in shared_drive_paths:
-                    if os.path.exists(path) and os.path.isdir(path):
-                        #self.log.debug(f"Found shared drive at: {path}")
-                        return path
+                for name in shared_drives_names:
+                    shared_drive_folder_path = os.path.join(base, name)
+                    if os.path.exists(shared_drive_folder_path) and os.path.isdir(shared_drive_folder_path):
+                        path_to_check = os.path.join(shared_drive_folder_path, drive_name)
+                        if os.path.exists(path_to_check) and os.path.isdir(path_to_check):
+                            #self.log.debug(f"Found shared drive at: {path_to_check}")
+                            return path_to_check
             
             # One more check - look for Shared drives in the GoogleDrive mount point
             gdrive_mount = "/Volumes/GoogleDrive"
             if os.path.exists(gdrive_mount):
-                shared_path = os.path.join(gdrive_mount, "Shared drives", drive_name)
-                if os.path.exists(shared_path):
-                    #self.log.debug(f"Found shared drive at: {shared_path}")
-                    return shared_path
+                for name in shared_drives_names:
+                    shared_drive_folder_path = os.path.join(gdrive_mount, name)
+                    if os.path.exists(shared_drive_folder_path) and os.path.isdir(shared_drive_folder_path):
+                        path_to_check = os.path.join(shared_drive_folder_path, drive_name)
+                        if os.path.exists(path_to_check) and os.path.isdir(path_to_check):
+                            #self.log.debug(f"Found shared drive at: {path_to_check}")
+                            return path_to_check
             
-            self.log.error(f"Could not locate shared drive '{drive_name}' in any Google Drive mount")
+            # If still not found, prompt the user
+            self.log.warning(f"Could not locate shared drive folder for '{drive_name}'. Prompting user.")
+            user_selected_path = self._prompt_user_for_shared_drives_path()
+            if user_selected_path and os.path.exists(os.path.join(user_selected_path, drive_name)):
+                self._shared_drives_path_override = user_selected_path
+                self.log.info(f"User selected Shared Drives path: {self._shared_drives_path_override}")
+                return os.path.join(self._shared_drives_path_override, drive_name)
+
+            self.log.error(f"Could not locate shared drive '{drive_name}' in any Google Drive mount or via user prompt")
             return None
         
         # Handle regular paths
@@ -353,22 +383,59 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         # Get all potential Google Drive paths
         base_paths = self._get_all_gdrive_paths()
-        
+
+        if self._shared_drives_path_override:
+            # Prioritize user-defined path. Ensure it is treated as the direct "Shared Drives" folder.
+            # The structure of base_paths expects paths *containing* a "Shared Drives" folder, 
+            # so we don't add the override directly to base_paths here if it's already the SD folder.
+            # Instead, we check it separately first.
+            try:
+                #self.log.debug(f"Checking user-defined shared drives path: {self._shared_drives_path_override}")
+                found_drives = os.listdir(self._shared_drives_path_override)
+                if found_drives:
+                    drives = [d for d in found_drives if not d.startswith('.') and os.path.isdir(os.path.join(self._shared_drives_path_override, d))]
+                    if drives: 
+                        return drives
+            except Exception as e:
+                self.log.error(f"Error listing shared drives from override path {self._shared_drives_path_override}: {e}")
+
         # Check each base path for shared drives folder
         for base_path in base_paths:
-            shared_drives_path = os.path.join(base_path, "Shared drives")
-            if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
-                try:
-                    #self.log.debug(f"Checking for shared drives in: {shared_drives_path}")
-                    found_drives = os.listdir(shared_drives_path)
-                    if found_drives:
-                        #self.log.debug(f"Found shared drives at {shared_drives_path}: {found_drives}")
-                        # Filter out hidden folders
-                        drives = [d for d in found_drives if not d.startswith('.')]
-                        return drives
-                except Exception as e:
-                    self.log.error(f"Error listing shared drives at {shared_drives_path}: {e}")
-                    
+            for name in self.shared_drives_names:
+                shared_drives_folder_path = os.path.join(base_path, name)
+                if os.path.exists(shared_drives_folder_path) and os.path.isdir(shared_drives_folder_path):
+                    try:
+                        #self.log.debug(f"Checking for shared drives in: {shared_drives_folder_path}")
+                        found_drives = os.listdir(shared_drives_folder_path)
+                        if found_drives:
+                            #self.log.debug(f"Found shared drives at {shared_drives_folder_path}: {found_drives}")
+                            # Filter out hidden folders
+                            drives = [d for d in found_drives if not d.startswith('.') and os.path.isdir(os.path.join(shared_drives_folder_path, d))]
+                            if drives: # ensure we found actual drives
+                                return drives
+                    except Exception as e:
+                        self.log.error(f"Error listing shared drives at {shared_drives_folder_path}: {e}")
+        
+        # If still not found by direct listing, and no override has been successfully used, prompt the user
+        # (The override might exist but be empty or invalid, so we re-check 'drives' list)
+        if not drives:
+            # Avoid prompting if an override was set but simply yielded no drives.
+            # Only prompt if no override path is set at all.
+            if not self._shared_drives_path_override:
+                self.log.warning("Could not locate Shared Drives folder automatically. Prompting user.")
+                user_selected_path = self._prompt_user_for_shared_drives_path() # Uses method from base class
+                if user_selected_path:
+                    self._shared_drives_path_override = user_selected_path
+                    self.log.info(f"User selected Shared Drives path: {self._shared_drives_path_override}")
+                    # Retry listing from the user-provided path
+                    try:
+                        found_drives = os.listdir(self._shared_drives_path_override)
+                        if found_drives:
+                            drives = [d for d in found_drives if not d.startswith('.') and os.path.isdir(os.path.join(self._shared_drives_path_override, d))]
+                            return drives # Return immediately after successful prompt and list
+                    except Exception as e:
+                        self.log.error(f"Error listing shared drives from user path {self._shared_drives_path_override}: {e}")
+
         return drives
 
     def _get_all_gdrive_paths(self):
@@ -433,228 +500,286 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
 
     def ensure_mount_point(self, desired_mount):
         """Create a symlink from the actual Google Drive location to the desired mount point"""
-        #self.log.debug(f"Ensuring Google Drive mount point at {desired_mount}")
+        self.log.debug(f"Ensuring Google Drive mount point at {desired_mount}")
         
-        # Find the actual Google Drive folder
         actual_drive_path = self.find_googledrive_mount()
         
         if not actual_drive_path:
-            self.log.warning("Could not find Google Drive folder to symlink")
-            return False
-        
+            self.log.warning("Could not find Google Drive folder to symlink for main mount point.")
+            return False # (False, "Google Drive folder not found") # Or more detailed status
+
+        # Normalize paths to be absolute and clean
+        actual_drive_path = os.path.normpath(os.path.abspath(actual_drive_path)).replace('"', '\\"')
+        desired_mount = os.path.normpath(os.path.abspath(desired_mount)).replace('"', '\\"')
+
         # Check if mount point already exists and points to the right place
-        if os.path.exists(desired_mount):
+        if os.path.lexists(desired_mount): # Use lexists for symlinks
             if os.path.islink(desired_mount):
-                target = os.readlink(desired_mount)
-                if target == actual_drive_path:
-                    #self.log.debug(f"Mount point already exists at {desired_mount} and points to {actual_drive_path}")
-                    return True
-                else:
-                    self.log.warning(f"Mount point {desired_mount} exists but points to {target} instead of {actual_drive_path}")
-                    # Remove the incorrect symlink
-                    try:
-                        os.remove(desired_mount)
-                    except Exception as e:
-                        self.log.error(f"Failed to remove incorrect symlink: {e}")
-                        return False
+                try:
+                    current_target = os.readlink(desired_mount)
+                    if os.path.normpath(os.path.abspath(current_target)) == actual_drive_path:
+                        self.log.debug(f"Mount point {desired_mount} already correctly links to {actual_drive_path}")
+                        return True # (True, "Already correctly linked")
+                except OSError as e:
+                    self.log.warning(f"Error reading existing symlink {desired_mount}: {e}. Will attempt to recreate.")
             else:
-                self.log.warning(f"Mount point {desired_mount} exists but is not a symlink")
-                return False
+                # Path exists but is not a symlink. This is a conflict.
+                self.log.error(f"Path {desired_mount} exists but is not a symlink. Cannot create mount point.")
+                # self.alert_path_in_use(desired_mount, "existing file/directory", actual_drive_path)
+                return False # (False, f"Path {desired_mount} is not a symlink")
         
-        # Create the parent directory if needed
-        parent_dir = os.path.dirname(desired_mount)
-        if not os.path.exists(parent_dir):
-            try:
-                os.makedirs(parent_dir, exist_ok=True)
-            except Exception as e:
-                self.log.error(f"Failed to create parent directory {parent_dir}: {e}")
-                return False
-        
-        # Create the symlink using AppleScript to request admin privileges if needed
+        # Prepare AppleScript
+        # Using -sfn: -s for symbolic, -f to force (remove existing destination files), 
+        # -n to treat link like a normal file if it's a symlink to a directory (safer for /Volumes)
         script_content = f'''
+        set p_actual_drive_path to "{actual_drive_path}"
+        set p_desired_mount to "{desired_mount}"
+        set p_parent_of_desired to do shell script "dirname " & quoted form of p_desired_mount
+
+        -- Try direct first (no admin privileges for creating the symlink itself)
+        -- Parent directory creation might still need admin if it's in a restricted area
         try
-            do shell script "ln -sf '{actual_drive_path}' '{desired_mount}'"
-            return "Link created successfully"
-        on error
+            do shell script "mkdir -p " & quoted form of p_parent_of_desired
+            do shell script "ln -sfn " & quoted form of p_actual_drive_path & " " & quoted form of p_desired_mount
+            return "success_direct"
+        on error errmsg_direct number errnum_direct
+            -- If direct attempt fails (likely permission error for /Volumes or parent dir), try with admin prompt
             try
-                display dialog "AYON needs to create a symbolic link for Google Drive.\\n\\nThis requires administrator privileges." with title "AYON: Configure Google Drive" buttons {{"Cancel", "Create"}} default button "Create"
+                display dialog "AYON needs to create a symbolic link for the main Google Drive mount point:" & return & return & "From: " & p_actual_drive_path & return & "To: " & p_desired_mount & return & return & "This requires administrator privileges." with title "AYON: Configure Google Drive Mount" buttons {{"Cancel", "Create"}} default button "Create" with icon note
                 
                 if button returned of result is "Create" then
-                    do shell script "ln -sf '{actual_drive_path}' '{desired_mount}'" with administrator privileges
-                    return "Link created successfully with admin privileges"
+                    do shell script "mkdir -p " & quoted form of p_parent_of_desired & " && ln -sfn " & quoted form of p_actual_drive_path & " " & quoted form of p_desired_mount with administrator privileges
+                    return "success_admin"
                 else
-                    error "Link creation cancelled by user"
+                    -- User cancelled
+                    return "cancelled"
                 end if
-            on error errorMsg
-                return "Error: " & errorMsg
+            on error errmsg_admin number errnum_admin
+                -- Error during admin attempt or dialog
+                return "error_admin: (" & errnum_admin & ") " & errmsg_admin
             end try
         end try
-        '''
+        ''' 
         
-        # Save the script to a temporary file
-        script_path = os.path.join(tempfile.gettempdir(), "ayon_gdrive_link.scpt")
-        with open(script_path, "w") as f:
-            f.write(script_content)
-        
-        # Execute the AppleScript
-        result = run_process(["osascript", script_path])
-        
-        # Clean up
-        if os.path.exists(script_path):
-            os.remove(script_path)
-        
-        if result and result.returncode == 0:
-            self.log.info(f"Successfully created symlink from {actual_drive_path} to {desired_mount}")
-            return True
-        else:
-            error = result.stderr if result else "Unknown error"
-            if "cancelled by user" in error:
-                self.log.warning("Symlink creation cancelled by user")
-            else:
-                self.log.error(f"Failed to create symlink: {error}")
-            return False
-    
-    def create_mapping(self, source_path, target_path, mapping_name=None):
-        """Create a symlink mapping on macOS"""
-        if not os.path.exists(source_path):
-            self.log.error(f"Source path does not exist: {source_path}")
-            return False
-            
-        # Check if target exists but is not properly linked
-        if os.path.exists(target_path):
-            if os.path.islink(target_path):
-                current_target = os.readlink(target_path)
-                if current_target == source_path:
-                    #self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
-                    return True
-                else:
-                    # Symlink exists but points elsewhere
-                    self.log.warning(f"Symlink {target_path} exists but points to {current_target} instead of {source_path}")
-                    self.alert_path_in_use(target_path, current_target, source_path)
-                    return False
-            else:
-                # Target exists but is not a symlink
-                self.log.warning(f"Path {target_path} exists but is not a symlink")
-                self.alert_path_in_use(target_path, None, source_path)
-                return False
-        
-        # Try to create the symlink directly first
+        script_path = os.path.join(tempfile.gettempdir(), "ayon_gdrive_ensure_mount.scpt")
         try:
-            # Create parent directory if needed
-            parent_dir = os.path.dirname(target_path)
-            if not os.path.exists(parent_dir):
-                os.makedirs(parent_dir, exist_ok=True)
-                
-            # Create the symlink
-            #self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
-            os.symlink(source_path, target_path)
-            #self.log.debug(f"Successfully created symlink directly")
-            return True
-        except PermissionError:
-            # Need admin privileges, try with osascript
-            #self.log.debug("Permission error creating symlink directly, will try with admin privileges")
-            
-            # Create AppleScript to request admin privileges
-            script_content = f"""
-            tell application "System Events"
-                set sourceQuoted to "{source_path}"
-                set targetQuoted to "{target_path}"
-                
-                try
-                    display dialog "AYON needs to create a symbolic link for Google Drive.\\n\\nThis requires administrator privileges." with title "AYON: Configure Google Drive" buttons {{"Cancel", "Create"}} default button "Create"
-                    
-                    if button returned of result is "Create" then
-                        do shell script "mkdir -p \\"" & (do shell script "dirname " & quoted form of targetQuoted) & "\\"" with administrator privileges
-                        do shell script "ln -sf \\"" & sourceQuoted & "\\" \\"" & targetQuoted & "\\"" with administrator privileges
-                        return "success"
-                    else
-                        return "cancelled"
-                    end if
-                on error errMsg
-                    return "error: " & errMsg
-                end try
-            end tell
-            """
-            
-            # Save the script to a temporary file
-            import tempfile
-            script_path = os.path.join(tempfile.gettempdir(), "ayon_gdrive_symlink.scpt")
             with open(script_path, "w") as f:
                 f.write(script_content)
             
-            # Execute the AppleScript
+            self.log.debug(f"Executing AppleScript for ensure_mount_point: {script_path}")
             result = run_process(["osascript", script_path])
             
-            # Clean up
-            try:
-                os.remove(script_path)
-            except Exception:
-                pass
-            
-            # Check result
-            if result and result.returncode == 0:
-                if "success" in result.stdout:
-                    self.log.info(f"Successfully created symlink with admin privileges: {target_path} -> {source_path}")
-                    return True
-                elif "cancelled" in result.stdout:
-                    self.log.warning(f"User cancelled symlink creation")
-                    return False
+            stdout = result.stdout.strip() if result.stdout else ""
+            stderr = result.stderr.strip() if result.stderr else ""
+
+            self.log.debug(f"ensure_mount_point osascript stdout: {stdout}")
+            if stderr:
+                self.log.debug(f"ensure_mount_point osascript stderr: {stderr}")
+
+            if "success_direct" in stdout or "success_admin" in stdout:
+                self.log.info(f"Successfully configured mount point {desired_mount} -> {actual_drive_path} (Method: {stdout})")
+                # Verify after creation
+                if os.path.islink(desired_mount) and os.path.normpath(os.path.abspath(os.readlink(desired_mount))) == actual_drive_path:
+                    return True #(True, stdout)
                 else:
-                    self.log.error(f"AppleScript error: {result.stdout}")
+                    self.log.error(f"Symlink at {desired_mount} post-creation check failed or points incorrectly.")
+                    return False #(False, "Post-creation check failed")
+            elif "cancelled" in stdout:
+                self.log.warning(f"User cancelled creation of mount point {desired_mount}")
+                return False #(False, "User cancelled")
+            else:
+                # Includes "error_admin" or other script issues
+                self.log.error(f"Failed to configure mount point {desired_mount}. Script output: {stdout}. Error: {stderr}")
+                return False #(False, f"AppleScript execution failed: {stdout} {stderr}")
+
+        except Exception as e:
+            self.log.error(f"Exception while executing AppleScript for ensure_mount_point: {e}", exc_info=True)
+            return False #(False, f"Python exception: {e}")
+        finally:
+            if os.path.exists(script_path):
+                try:
+                    os.remove(script_path)
+                except Exception as e_rm:
+                    self.log.warning(f"Failed to remove temp AppleScript file {script_path}: {e_rm}")
+
+    def create_mapping(self, source_path, target_path, mapping_name=None):
+        """Create a symlink on macOS, prompting for admin if needed, and record it."""
+        if not mapping_name:
+            mapping_name = os.path.basename(target_path) 
+        # Normalize paths to be absolute and clean for reliable comparison and creation
+        source_path = os.path.normpath(os.path.abspath(source_path)).replace('"', '\\"')
+        target_path = os.path.normpath(os.path.abspath(target_path)).replace('"', '\\"')
+
+        # Normalize paths to be absolute and clean for reliable comparison and creation
+        # The source_path from find_source_path should already be absolute
+        # However, target_path from settings might be relative or messy
+        target_path = os.path.normpath(os.path.abspath(target_path))
+        # source_path is expected to be already an absolute, existing path from find_source_path
+        if not os.path.isabs(source_path):
+            self.log.warning(f"Source path '{source_path}' for mapping '{mapping_name}' is not absolute. This is unexpected.")
+            # Attempt to make it absolute assuming it's relative to some default, or just fail.
+            # For now, we proceed, but this indicates a potential issue upstream.
+
+        self.log.info(f"Attempting to create mapping '{mapping_name}': {source_path} -> {target_path}")
+
+        parent_dir = os.path.dirname(target_path)
+
+        # Check if target_path already exists
+        if os.path.lexists(target_path):
+            if os.path.islink(target_path):
+                try:
+                    current_link_target = os.readlink(target_path)
+                    # Normalize current_link_target as well, in case it's relative
+                    if not os.path.isabs(current_link_target):
+                         # This is tricky: relative symlinks are relative to their parent dir
+                        current_link_target = os.path.normpath(os.path.join(os.path.dirname(target_path), current_link_target))
+                    else:
+                        current_link_target = os.path.normpath(current_link_target)
                     
-            self.log.error(f"Permission denied creating symlink at {target_path}")
-            #self.log.debug(f"Admin privileges required: sudo ln -sf '{source_path}' '{target_path}'")
-            return False
-        except Exception as e:
-            self.log.error(f"Error creating symlink: {e}")
-            return False
-    
-    def alert_path_in_use(self, path, current_target, desired_target):
-        """Alert the user about path conflicts"""
-        if current_target:
-            message = (
-                f"Path {path} is already linked to a different location:\n"
-                f"Current target: {current_target}\n"
-                f"Desired target: {desired_target}\n\n"
-                f"Please modify your settings or remove the existing link."
-            )
-        else:
-            message = (
-                f"Path {path} already exists but is not a symbolic link.\n"
-                f"Cannot create link to: {desired_target}\n\n"
-                f"Please modify your settings or remove the existing file/directory."
-            )
-        
-        self.log.warning(f"Path conflict: {message}")
-        
-        # Try to show a macOS alert
+                    normalized_source_path = os.path.normpath(source_path)
+
+                    if current_link_target == normalized_source_path:
+                        self.log.info(f"Symlink for '{mapping_name}' at {target_path} already exists and points correctly.")
+                        self._record_mapping(mapping_name, source_path, target_path)
+                        return True
+                    else:
+                        self.log.warning(f"Symlink {target_path} for '{mapping_name}' exists but points to {current_link_target} (expected {normalized_source_path}). It will be replaced.")
+                        # os.unlink might need admin, handled by the ln -sfn in script later
+                except OSError as e:
+                    self.log.warning(f"Error checking existing symlink {target_path} for '{mapping_name}': {e}. Will attempt to (re)create.")
+            else:
+                self.log.error(f"Path {target_path} for '{mapping_name}' already exists and is not a symlink. Cannot create mapping.")
+                return False
+
+        # Attempt to create the symlink directly first
         try:
-            # Sanitize the message for osascript
-            safe_message = message.replace('"', '\\"')
-            script = f'display dialog "{safe_message}" with title "Google Drive Path Conflict" buttons {{"OK"}} default button "OK" with icon caution'
-            subprocess.run(["osascript", "-e", script], capture_output=True)
-        except Exception as e:
-            self.log.debug(f"Could not show GUI alert: {e}")
-    
-    def show_admin_instructions(self, source_path, target_path):
-        """Show instructions for operations requiring admin privileges"""
-        command = f"sudo ln -sf '{source_path}' '{target_path}'"
-        message = (
-            f"Creating the symlink requires administrator privileges.\n\n"
-            f"Please run this command in Terminal:\n{command}"
-        )
-        
-        #self.log.debug(f"Admin privileges required: {command}")
-        
-        # Try to show a macOS alert
-        try:
-            # Sanitize the message for osascript
-            safe_message = message.replace('"', '\\"')
-            script = f'display dialog "{safe_message}" with title "Google Drive Setup" buttons {{"OK"}} default button "OK"'
-            subprocess.run(["osascript", "-e", script], capture_output=True)
-        except Exception as e:
-            self.log.debug(f"Could not show GUI alert: {e}")
+            if not os.path.exists(parent_dir):
+                # Try to create parent dir without admin first. If it's in /Volumes, this will fail and be handled by AppleScript.
+                try:
+                    os.makedirs(parent_dir, exist_ok=True)
+                    self.log.debug(f"Created parent directory (direct): {parent_dir} for mapping '{mapping_name}'")
+                except OSError as e_mkdir:
+                    if e_mkdir.errno != errno.EEXIST: # Don't log if it just already existed
+                        self.log.debug(f"Direct mkdir failed for {parent_dir} (mapping '{mapping_name}'): {e_mkdir}. Will be retried by AppleScript if needed.")
             
+            # If symlink exists and was wrong, unlink it first (best effort, might need admin)
+            if os.path.lexists(target_path) and os.path.islink(target_path):
+                 try:
+                    os.unlink(target_path)
+                 except OSError as e_unlink_direct:
+                    self.log.debug(f"Direct unlink of existing symlink {target_path} failed: {e_unlink_direct}. Will rely on ln -sfn.")
+
+            os.symlink(source_path, target_path)
+            self.log.info(f"Successfully created symlink (direct) for '{mapping_name}': {target_path} -> {source_path}")
+            self._record_mapping(mapping_name, source_path, target_path)
+            return True
+        except OSError as e:
+            if e.errno in [errno.EACCES, errno.EPERM, errno.ENOENT]: # ENOENT if parent dir couldn't be made in restricted area
+                self.log.warning(f"Direct symlink creation for '{mapping_name}' failed: {e}. Attempting with administrator privileges.")
+                
+                # Using -sfn: -s for symbolic, -f to force (remove existing destination files),
+                # -n to treat link like a normal file if it's a symlink to a directory (safer for /Volumes)
+                script_content = f'''
+                set p_source_path to "{source_path}"
+                set p_target_path to "{target_path}"
+                set p_parent_of_target to do shell script "dirname " & quoted form of p_target_path
+
+                try
+                    display dialog "AYON needs to create a symbolic link for the mapping '{mapping_name}':" & return & return & "From: " & p_source_path & return & "To: " & p_target_path & return & return & "This requires administrator privileges." with title "AYON: Configure Drive Mapping" buttons {{"Cancel", "Create"}} default button "Create" with icon note
+                    
+                    if button returned of result is "Create" then
+                        do shell script "mkdir -p " & quoted form of p_parent_of_target & " && ln -sfn " & quoted form of p_source_path & " " & quoted form of p_target_path with administrator privileges
+                        return "success_admin"
+                    else
+                        return "cancelled"
+                    end if
+                on error errmsg number errnum
+                    return "error_admin: (" & errnum & ") " & errmsg
+                end try
+                '''
+                script_path = os.path.join(tempfile.gettempdir(), f"ayon_gdrive_create_mapping_{mapping_name.replace(' ', '_')}.scpt")
+                try:
+                    with open(script_path, "w") as f:
+                        f.write(script_content)
+                    
+                    self.log.debug(f"Executing AppleScript for create_mapping '{mapping_name}': {script_path}")
+                    result = run_process(["osascript", script_path])
+                    stdout = result.stdout.strip() if result.stdout else ""
+                    stderr = result.stderr.strip() if result.stderr else ""
+                    self.log.debug(f"create_mapping '{mapping_name}' osascript stdout: {stdout}")
+                    if stderr: self.log.debug(f"create_mapping '{mapping_name}' osascript stderr: {stderr}")
+
+                    if "success_admin" in stdout:
+                        self.log.info(f"Successfully created symlink via AppleScript for '{mapping_name}': {target_path} -> {source_path}")
+                        self._record_mapping(mapping_name, source_path, target_path)
+                        return True
+                    elif "cancelled" in stdout:
+                        self.log.warning(f"User cancelled symlink creation for '{mapping_name}'.")
+                        return False
+                    else:
+                        self.log.error(f"AppleScript execution failed for '{mapping_name}'. Script output: {stdout}. Error: {stderr}")
+                        return False
+                except Exception as e_script:
+                    self.log.error(f"Exception during AppleScript execution for '{mapping_name}': {e_script}", exc_info=True)
+                    return False
+                finally:
+                    if os.path.exists(script_path):
+                        try: os.remove(script_path)
+                        except Exception as e_rm: self.log.warning(f"Failed to remove temp AppleScript file {script_path}: {e_rm}")
+            else:
+                self.log.error(f"Failed to create symlink for '{mapping_name}' due to an unexpected OS error: {e}", exc_info=True)
+                return False
+        except Exception as e_general:
+            self.log.error(f"An unexpected error occurred during symlink creation for '{mapping_name}': {e_general}", exc_info=True)
+            return False
+
+    def _get_mappings_file_path(self):
+        """Returns the path to the file storing active mappings."""
+        # tempfile.gettempdir() ensures this is a writable location
+        return os.path.join(tempfile.gettempdir(), "ayon_gdrive_macos_mappings.json")
+
+    def _record_mapping(self, name, source, target):
+        """Records an active symlink mapping to a file."""
+        mappings_file = self._get_mappings_file_path()
+        mappings = {}
+        if os.path.exists(mappings_file):
+            try:
+                with open(mappings_file, "r") as f:
+                    mappings = json.load(f)
+            except (IOError, json.JSONDecodeError) as e:
+                self.log.warning(f"Could not read existing mappings file {mappings_file}: {e}. It will be overwritten.")
+        
+        mappings[name] = {"source_path": source, "target_path": target, "timestamp": time.time()}
+        
+        try:
+            with open(mappings_file, "w") as f:
+                json.dump(mappings, f, indent=4)
+            self.log.debug(f"Recorded mapping '{name}' to {mappings_file}")
+        except IOError as e:
+            self.log.error(f"Failed to write to mappings file {mappings_file}: {e}")
+
+    def _get_active_mappings_from_file(self):
+        """Reads active symlink mappings from the file."""
+        mappings_file = self._get_mappings_file_path()
+        if not os.path.exists(mappings_file):
+            return {}
+        try:
+            with open(mappings_file, "r") as f:
+                return json.load(f)
+        except (IOError, json.JSONDecodeError) as e:
+            self.log.error(f"Failed to read or parse mappings file {mappings_file}: {e}")
+            return {}
+
+    def _clear_active_mappings_file(self):
+        """Clears the active mappings file."""
+        mappings_file = self._get_mappings_file_path()
+        if os.path.exists(mappings_file):
+            try:
+                os.remove(mappings_file)
+                self.log.info(f"Cleared active mappings file: {mappings_file}")
+            except OSError as e:
+                self.log.error(f"Failed to remove mappings file {mappings_file}: {e}")
+
     def check_mapping_exists(self, target_path):
         """Check if a mapping exists at the target path"""
         return os.path.exists(target_path)
@@ -673,105 +798,51 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             return False
             
     def remove_all_mappings(self):
-        """Remove all symlink mappings created by AYON"""
-        # For macOS, we don't have a clean way to identify which links were created
-        # by AYON, so we'll use settings to guide us
-        try:
-            settings = self.addon.settings if hasattr(self, 'addon') else None
-            if not settings:
-                from ayon_googledrive.api.lib import get_settings
-                settings = get_settings()
-                
-            mappings = settings.get("mappings", [])
-            
-            for mapping in mappings:
-                target = mapping.get("macos_target", "")
-                if target and os.path.exists(target) and os.path.islink(target):
-                    #self.log.debug(f"Removing symlink: {target}")
-                    try:
-                        os.unlink(target)
-                    except Exception as e:
-                        self.log.error(f"Failed to remove symlink {target}: {e}")
-                        
-            return True
-        except Exception as e:
-            self.log.error(f"Error removing mappings: {e}")
-            return False
+        """Remove all created symlinks and unmount any drives if applicable."""
+        self.log.info("Attempting to remove all Google Drive mappings on macOS")
 
-    def create_symlink(self, source_path, target_path):
-        """Create a symlink with admin privileges if needed"""
-        #self.log.debug(f"Creating symlink: {target_path} -> {source_path}")
-        
-        # Check if target already exists and is correct
-        if os.path.exists(target_path):
-            if os.path.islink(target_path):
+        if self.settings and self.settings.get("keep_symlinks_on_exit", False):
+            self.log.info("Skipping symlink removal as 'keep_symlinks_on_exit' is enabled.")
+            return True
+
+        mappings = self._get_active_mappings_from_file()
+        if not mappings:
+            self.log.info("No active mappings found to remove.")
+            return True
+
+        success_all = True
+        for mapping_name, details in list(mappings.items()): # Iterate over a copy for safe deletion
+            target_path = details.get("target_path")
+            if target_path and os.path.islink(target_path):
                 try:
-                    existing_target = os.readlink(target_path)
-                    if existing_target == source_path:
-                        #self.log.debug(f"Symlink already exists and is correct at {target_path}")
-                        return True
-                    #self.log.debug(f"Symlink exists but points to wrong target: {existing_target}")
-                except Exception as e:
-                    self.log.error(f"Error checking existing symlink: {e}")
-            else:
-                self.log.error(f"Target path exists but is not a symlink: {target_path}")
-                return False
-        
-        # Try creating symlink directly first (will likely fail for /Volumes)
-        try:
-            if os.path.exists(target_path):
-                os.unlink(target_path)
-            os.symlink(source_path, target_path)
-            #self.log.debug(f"Created symlink directly: {target_path} -> {source_path}")
-            return True
-        except PermissionError:
-            self.log.debug("Permission error creating symlink directly, will try with admin privileges")
-        except Exception as e:
-            self.log.debug(f"Error creating symlink directly: {e}")
-        
-        # Create a user-friendly notification
-        from PyQt5.QtWidgets import QMessageBox
-        from ayon_googledrive.api import get_main_window
-        
-        msg = QMessageBox(get_main_window())
-        msg.setWindowTitle("Admin Privileges Required")
-        msg.setText("Creating the symlink requires administrator privileges.")
-        msg.setInformativeText(f"To map '{os.path.basename(source_path)}' to '{target_path}', please run this command in Terminal:\n\n" +
-                               f"sudo ln -sf '{source_path}' '{target_path}'")
-        msg.setIcon(QMessageBox.Information)
-        msg.setStandardButtons(QMessageBox.Ok)
-        msg.exec_()
-        
-        # Return False since we couldn't create the symlink automatically
-        return False
+                    # Verify it's a link we likely created by checking if source matches, if available
+                    # This is an extra precaution, actual check is based on the record file
+                    # recorded_source = details.get("source_path")
+                    # current_source = os.readlink(target_path)
+                    # if recorded_source and os.path.normpath(current_source) != os.path.normpath(recorded_source):
+                    #    self.log.warning(f"Symlink {target_path} points to {current_source}, expected {recorded_source}. Will not remove.")
+                    #    continue # Skip removal if it doesn't point to what we recorded
 
-    def process_mapping(self, mapping):
-        """Process a single mapping configuration with better error handling"""
-        name = mapping.get("name", "Unknown")
-        source_path = mapping.get("source_path")
-        target_path = mapping.get("macos_target")
-        
-        if not source_path or not target_path:
-            self.log.error(f"Invalid mapping configuration for {name}")
-            return False
-        
-        #self.log.debug(f"Processing mapping '{name}': {source_path} -> {target_path}")
-        
-        # Find the full source path in Google Drive
-        full_source_path = self.find_source_path(source_path)
-        
-        if not full_source_path:
-            self.log.error(f"Could not find source path for {source_path}")
-            return False
-            
-        #self.log.debug(f"Found shared drive at: {full_source_path}")
-        
-        # Create the symlink
-        success = self.create_symlink(full_source_path, target_path)
-        if not success:
-            # Don't log as error since we've provided instructions to the user
-            #self.log.debug(f"Could not automatically create symlink for mapping: {name}")
-            return False
-        
-        self.log.info(f"Mapping '{name}' successfully processed: {target_path} -> {full_source_path}")
-        return True
+                    os.unlink(target_path)
+                    self.log.info(f"Successfully removed symlink: {target_path} for mapping '{mapping_name}'")
+                except OSError as e:
+                    self.log.error(f"Failed to remove symlink {target_path} for mapping '{mapping_name}': {e}")
+                    success_all = False
+                except Exception as e:
+                    self.log.error(f"Unexpected error removing symlink {target_path} for '{mapping_name}': {e}")
+                    success_all = False
+            elif target_path and os.path.exists(target_path):
+                # This case should ideally not happen if we only record symlinks we create
+                self.log.warning(f"Path {target_path} for mapping '{mapping_name}' exists but is not a symlink. Manual removal might be needed.")
+            else:
+                self.log.debug(f"Symlink {target_path} for mapping '{mapping_name}' not found or already removed.")
+
+        if success_all:
+            self.log.info("Successfully removed all symlinks based on active mappings record.")
+            self._clear_active_mappings_file() # Clear the record of active mappings
+        else:
+            self.log.warning("Some symlinks could not be removed. The record file will not be cleared.")
+            # Potentially, you might want to update the record file to remove only successfully deleted links
+            # For now, we leave it as is, so on next run it might try again or show which ones failed.
+
+        return success_all

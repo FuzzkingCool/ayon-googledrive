@@ -1,5 +1,6 @@
 import os
 import platform
+import sys
 import threading
 import time
 
@@ -35,7 +36,8 @@ class GDriveAddon(AYONAddon, ITrayAddon):
     _gdrive_manager = None
     _monitor_thread = None
     _monitoring = False
-      
+    _notification_thread = None
+    
     def initialize(self, settings):
         """Initialization of addon."""
         log.debug("Initializing Google Drive addon")
@@ -51,6 +53,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         self._monitor_thread = None
         self._monitoring = False
         self._tray = None
+        self._notification_thread = None
         
         # Auto-start Google Drive if it's installed but not running
         if self.settings.get("auto_restart_googledrive"):
@@ -156,6 +159,19 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
         # Clean up any mappings
         self._gdrive_manager.platform_handler.remove_all_mappings()
+        
+        # Clean up thread by setting it to None and stopping it
+        if self._monitor_thread:
+            self._monitor_thread.join()
+            self._monitor_thread = None
+        # notifications thread
+        if self._notification_thread:
+            self._notification_thread.join()
+            self._notification_thread = None
+        
+        # Exit the application
+        if self.settings.get("keep_symlinks_on_exit"):
+            sys.exit(0)
  
     # Definition of Tray menu
     def tray_menu(self, tray_menu):
@@ -270,7 +286,8 @@ class GDriveAddon(AYONAddon, ITrayAddon):
             # Start a background thread to wait for proper initialization and then set up mappings
             thread = threading.Thread(target=self._wait_for_drive_and_map)
             thread.daemon = True
-            thread.start()
+            self._notification_thread = thread
+            self._notification_thread.start()
             
         else:
             show_notification("Failed to start Google Drive",
@@ -337,8 +354,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         # Clean up the thread reference
         self._monitor_thread = None
         self._monitoring = False
-
-
+      
     def _monitor_googledrive(self):
         """Monitor Google Drive status in background thread."""
         import os
@@ -384,54 +400,105 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 drive_mounted = False
                 mounted_letter = None
                 if platform.system() == "Windows":
-                    for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-                        shared_drives_path = f"{drive_letter}:\\Shared drives"
+                    for drive_letter_iter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ": # Renamed to avoid conflict
+                        shared_drives_path = f"{drive_letter_iter}:\\Shared drives"
                         if os.path.exists(shared_drives_path):
                             drive_mounted = True
-                            mounted_letter = drive_letter
+                            mounted_letter = drive_letter_iter
                             break
                     if drive_mounted:
-                        log.debug(f"Google Drive mounted at drive letter: {mounted_letter}:")
+                        log.debug(f"Google Drive basic mount point detected at drive letter: {mounted_letter}:")
                 else:
                     if platform.system() == "Darwin":
                         if os.path.exists("/Volumes/GoogleDrive"):
                             drive_mounted = True
-                    else:
+                    else: # Linux
                         if os.path.exists("/mnt/google_drive"):
                             drive_mounted = True
+                    if drive_mounted:
+                        log.debug("Google Drive basic mount point detected.")
 
-                # log.debug(f"Google Drive status check: process={process_running}, drive_mounted={drive_mounted}")
+                # Check accessibility of configured mapping target paths within Google Drive
+                configured_targets_accessible = False # Default to false
+                if drive_mounted: # Only check if the basic mount point itself exists
+                    configured_targets_accessible = True # Assume true until a missing one is found
+                    try:
+                        mappings = self._gdrive_manager._get_mappings()
+                        if mappings: # If there are any mappings configured
+                            for mapping_config in mappings:
+                                os_type_lower = self._gdrive_manager.os_type.lower()
+                                target_path_key = f"{os_type_lower}_target" # e.g., "windows_target"
+                                configured_gdrive_internal_path = mapping_config.get(target_path_key)
 
-                # Only attempt restart logic if installed
+                                if not configured_gdrive_internal_path:
+                                    log.warning(f"Mapping configuration '{mapping_config.get('name', 'N/A')}' is missing target path for platform {self._gdrive_manager.os_type}.")
+                                    configured_targets_accessible = False
+                                    break 
+                                if not os.path.exists(configured_gdrive_internal_path):
+                                    log.warning(f"Configured mapping target path does not exist: {configured_gdrive_internal_path} (for mapping '{mapping_config.get('name', 'N/A')}').")
+                                    configured_targets_accessible = False
+                                    break
+                            if configured_targets_accessible and mappings:
+                                log.debug("All configured mapping target paths within Google Drive are accessible.")
+                        # else: No mappings configured, configured_targets_accessible remains True (vacuously true)
+                    except Exception as map_ex:
+                        log.error(f"Error while checking configured mapping target paths: {map_ex}", exc_info=True)
+                        configured_targets_accessible = False # Treat errors as not accessible
+                # else: drive_mounted (basic mount) is False, so configured_targets_accessible remains False.
+
                 if not process_running or not drive_mounted:
                     if retry_count < max_retries:
-                        log.warning(f"Google Drive issue detected - process:{process_running}, mounted:{drive_mounted}")
+                        log.warning(f"Google Drive issue detected - process:{process_running}, basic_mount:{drive_mounted}, configured_targets_accessible:{configured_targets_accessible}")
                         from ayon_googledrive.ui.notifications import show_notification
                         show_notification(
-                            "Google Drive Restarting",
-                            "Google Drive was closed or not responding and will be restarted automatically.",
+                            "Google Drive Issue Detected",
+                            "Google Drive may be closed, not responding, or a mount point is missing. Investigating...",
                             level="warning",
-                            unique_id="gdrive_restart"
+                            unique_id="gdrive_issue_detected"
                         )
-                        log.warning("Attempting to restart Google Drive")
-                        self._gdrive_manager.start_googledrive()
-                        self._wait_for_drive_and_map()
+                        
+                        should_skip_restart = False
+                        reason_for_skip = ""
+
+                        if not drive_mounted:
+                            should_skip_restart = True
+                            reason_for_skip = "Basic Google Drive mount point (e.g., G:\\Shared drives) not found."
+                        elif not process_running and not configured_targets_accessible:
+                            # Process died AND configured GDrive internal paths are missing.
+                            # Restarting might cause GDrive to crash again if it needs these paths.
+                            should_skip_restart = True
+                            reason_for_skip = "Google Drive process not running AND configured mapping target paths are not accessible. Skipping restart to avoid potential instability."
+                        
+                        if should_skip_restart:
+                            log.warning(f"Skipping Google Drive restart attempt. Reason: {reason_for_skip}")
+                        else:
+                            # Conditions for restart:
+                            # 1. Process not running, basic mount OK, configured targets OK.
+                            # (If process not running, basic mount OK, configured targets BAD -> caught by skip above)
+                            # (If process running, basic mount BAD -> caught by `not drive_mounted` skip)
+                            log.warning("Attempting to restart Google Drive.")
+                            self._gdrive_manager.start_googledrive()
+                            self._wait_for_drive_and_map()
+                        
                         retry_count += 1
                     else:
-                        log.error(f"Failed to restart Google Drive after {max_retries} attempts")
+                        log.error(f"Failed to resolve Google Drive issue after {max_retries} attempts. Will retry monitoring cycle.")
                         from ayon_googledrive.ui.notifications import show_notification
                         show_notification(
                             "Google Drive Error",
-                            f"Failed to restart Google Drive after {max_retries} attempts. Will try again later.",
+                            f"Failed to resolve Google Drive issue after {max_retries} attempts. Please check Google Drive status manually. Will continue monitoring.",
                             level="error",
-                            unique_id="gdrive_restart_failed"
+                            unique_id="gdrive_resolve_failed"
                         )
-                        
-                        retry_count = 0
-                else:
-                    retry_count = 0
-                    if drive_mounted:
-                        self._gdrive_manager.ensure_consistent_paths()
+                        retry_count = 0 # Reset retry for next cycle after cooldown
+                else: # Process is running AND basic_drive_mount is True
+                    retry_count = 0 # Reset retries as basic GDrive seems ok
+                    if not configured_targets_accessible:
+                        log.warning("Google Drive is running and basic mount is present, but some configured mapping target paths are not accessible. Attempting to ensure consistent paths.")
+                        self._gdrive_manager.ensure_consistent_paths() # Try to fix mappings
+                    else:
+                        # log.debug("Google Drive status OK: Process running, basic mount present, configured targets accessible.")
+                        self._gdrive_manager.ensure_consistent_paths() # Ensure actual OS-level mappings are consistent
 
                 menu_update_counter += 1
                 if menu_update_counter >= menu_update_interval:
@@ -439,13 +506,14 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                     QtCore.QTimer.singleShot(0, self._update_menu)
 
             except Exception as e:
-                log.error(f"Error in Google Drive monitoring thread: {e}")
+                log.error(f"Error in Google Drive monitoring thread: {e}", exc_info=True)
 
             for _ in range(check_interval):
                 if not self._monitoring:
                     log.debug("Monitoring flag turned off, exiting loop")
                     break
                 time.sleep(1)
+                
 
         log.debug("Google Drive monitoring thread exiting")
 
