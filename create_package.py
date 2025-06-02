@@ -35,6 +35,7 @@ import subprocess
 from typing import Optional, Iterable, Pattern, Union, List, Tuple
 
 import package
+from client.ayon_googledrive.version import __version__
 
 FileMapping = Tuple[Union[str, io.BytesIO], str]
 ADDON_NAME: str = package.name
@@ -406,7 +407,7 @@ def main(
     """Main entrypoint for package creation."""
     # Get addon details from settings
     addon_name = "googledrive"
-    addon_version = "0.2.3"
+    addon_version = __version__
     
     # Create bundle directory
     bundle_dir = os.path.join(output_dir or ".", f"{addon_name}-{addon_version}")
