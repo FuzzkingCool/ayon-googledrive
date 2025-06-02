@@ -35,6 +35,8 @@ def clean_relative_path(path):
     if platform.system() == "Windows":
         if path.startswith("\\"):
             return path.lstrip("\\")
+        elif path.startswith("\""):
+            return path.lstrip("\"")
     else:
         if path.startswith("/"):
             return path.lstrip("/")

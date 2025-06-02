@@ -1,6 +1,7 @@
 import ctypes
 import glob
 import os
+import platform
 import re
 import subprocess
 import threading
@@ -171,6 +172,8 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
     def find_source_path(self, relative_path):
         """Find the full path to a Google Drive item on Windows"""
         clean_path = clean_relative_path(relative_path)
+        if platform.system() == "Windows":
+            clean_path = clean_path.lstrip("\\/")
 
         # If a user override for the Shared Drives path exists, check it first
         if any(name in clean_path for name in self.shared_drives_names):
@@ -255,57 +258,50 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         self.log.debug(f"Searching for '{clean_path}' in bases: {unique_bases}")
 
         for base_path_to_search in unique_bases:
-            # Determine if base_path_to_search is a root (e.g., G:\) or a specific Shared Drives folder (e.g., G:\Shared drives)
-            is_shared_drives_folder_itself = any(base_path_to_search.endswith(sep + sd_name) for sep in [os.sep, os.altsep] if sep for sd_name in self.shared_drives_names)
+            # Determine if base_path_to_search is a shared drives folder (e.g., I:\Shared drives) or a root (e.g., I:\)
+            is_shared_drives_folder_itself = any(base_path_to_search.rstrip('\\/').endswith(sep + sd_name) for sep in [os.sep, os.altsep] if sep for sd_name in self.shared_drives_names)
 
             if any(name in clean_path for name in self.shared_drives_names):
-                # This is a path expected to be *inside* a "Shared Drives" type folder
                 actual_item_name = clean_path
-                # Iterate through shared drive name variants and separators to strip the prefix
-                # Example: clean_path = "Shared drives\MyProject", sd_name_variant = "Shared drives", sep = "\"
-                # We want actual_item_name = "MyProject"
+                # Strip all shared drive name variants and separators from the start
                 for sd_name_variant in self.shared_drives_names:
                     for sep in ['\\', '/']:
                         prefix_to_check = sd_name_variant + sep
                         if actual_item_name.startswith(prefix_to_check):
                             actual_item_name = actual_item_name[len(prefix_to_check):]
-                            break  # Prefix found and stripped for this sd_name_variant
-                    else: # Inner loop didn't break
-                        # If actual_item_name was not stripped by "variant + sep",
-                        # check if it's equal to the variant itself (e.g. clean_path is "Shared drives" and variant is "Shared drives")
-                        # In this case, the actual item name should be empty, as we are looking for the content of "Shared drives"
+                            break
+                    else:
                         if actual_item_name == sd_name_variant:
                             actual_item_name = ""
-                            break # Item is the shared drive folder itself
-                        continue # Try next sd_name_variant
-                    break # Outer loop break if prefix stripped or item is the folder itself
-                
-                # If, after attempting to strip, actual_item_name still contains a shared drive name at the beginning
-                # (e.g. clean_path was "SharedDrivesFolderName" and sd_name_variant was "Shared Drives" - no match)
-                # but the base_path_to_search *is* a shared drive folder,
-                # we might have a direct reference to a shared drive.
-                # However, the original logic to split by "marker = sep + sd_name_variant + sep" was more for deeper paths.
-                # The new prefix stripping should handle most cases.
-                # The critical part is that if base_path_to_search is like "I:\Shared drives",
-                # and clean_path was "Shared drives\Projects", actual_item_name should now be "Projects".
-
+                            break
+                        continue
+                    break
+                # Remove any remaining shared drive name prefix (defensive)
+                for sd_name_variant in self.shared_drives_names:
+                    for sep in ['\\', '/']:
+                        prefix_to_check = sd_name_variant + sep
+                        if actual_item_name.startswith(prefix_to_check):
+                            actual_item_name = actual_item_name[len(prefix_to_check):]
+                # Only append shared drive name if base is root 
                 if is_shared_drives_folder_itself:
+                    # base_path_to_search is already a shared drives folder, just append the item name
                     path_variant = os.path.join(base_path_to_search, actual_item_name)
                     self.log.debug(f"Checking path variant (direct shared folder): {path_variant}")
                     if os.path.exists(path_variant):
                         self.log.info(f"Found source path: {path_variant}")
                         return path_variant
-                else: # base_path_to_search is a root like G:\
-                    for sd_name in self.shared_drives_names: # Check all language variants
+                else:
+                    # base_path_to_search is a root, append shared drive name and then item name
+                    for sd_name in self.shared_drives_names:
+                        # Only append if actual_item_name is not empty
                         path_variant = os.path.join(base_path_to_search, sd_name, actual_item_name)
                         self.log.debug(f"Checking path variant (root + lang + item): {path_variant}")
                         if os.path.exists(path_variant):
                             self.log.info(f"Found source path: {path_variant}")
                             return path_variant
             else:
-                # This is a path not in "Shared Drives" (e.g., in "My Drive")
-                # base_path_to_search should be a drive root like G:\ in this case for it to be valid
-                if not is_shared_drives_folder_itself: # Ensure we are searching from a root like G:\ or similar
+                # Not a shared drive path, treat as My Drive
+                if not is_shared_drives_folder_itself:
                     path_variant = os.path.join(base_path_to_search, clean_path.lstrip('\\/'))
                     self.log.debug(f"Checking path variant (My Drive type): {path_variant}")
                     if os.path.exists(path_variant):
@@ -438,8 +434,8 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             return False
             
         # Clean up desired mount format
-        if not desired_mount.endswith(':'):
-            desired_mount += ":"
+        if not desired_mount.endswith(':\\'):
+            desired_mount += ":\\"
         
         # If drive already at desired letter, all good
         if current_mount == desired_mount:
