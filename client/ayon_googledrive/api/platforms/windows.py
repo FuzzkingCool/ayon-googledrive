@@ -378,26 +378,86 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         
         self.log.info(f"Creating mapping: {drive_letter}: -> {source_path}")
         
-        # Check if target drive letter already exists with correct mapping
-        if os.path.exists(target_path):
+        # Check if target drive letter already exists
+        # Note: os.path.exists() might return False for network drives that aren't accessible
+        # So we'll also check via other methods
+        drive_exists = os.path.exists(target_path)
+        
+        # Also check if the drive letter is listed by the system
+        if not drive_exists:
             try:
-                # Check if existing mapping is what we want
+                # Use wmic to check if drive exists regardless of accessibility
+                wmic_result = run_process([
+                    "wmic", "logicaldisk", "where", f"deviceid='{drive_letter}:'", 
+                    "get", "deviceid", "/format:csv"
+                ], check=False)
+                
+                if wmic_result and wmic_result.stdout and f"{drive_letter.upper()}:" in wmic_result.stdout.upper():
+                    drive_exists = True
+                    self.log.debug(f"Drive {drive_letter}: detected via wmic even though not accessible via os.path.exists")
+            except Exception as e:
+                self.log.debug(f"Could not check drive existence via wmic: {e}")
+        
+        if drive_exists:
+            try:
+                # First check if it's a SUBST mapping
                 result = run_process(["subst"], check=False)
+                existing_mapping = None
+                
                 if result and drive_letter + ":" in result.stdout:
-                    existing_mapping = None
                     for line in result.stdout.splitlines():
                         if line.startswith(drive_letter + ":"):
                             existing_mapping = line.split("=>", 1)[1].strip() if "=>" in line else None
+                            break
                     
                     if existing_mapping == source_path:
                         self.log.info(f"Drive {drive_letter}: is already mapped to {source_path}")
                         return True
                     else:
-                        self.log.warning(f"Drive {drive_letter}: is already mapped to {existing_mapping}, not {source_path}")
+                        self.log.warning(f"Drive {drive_letter}: is already mapped via SUBST to {existing_mapping}. Cannot create AYON mapping to {source_path}")
+                        self.alert_drive_in_use(drive_letter, f"{existing_mapping} (SUBST)", source_path)
+                        return False
+                
+                # If not a SUBST mapping, check if it's a network drive or other mapping
+                if not existing_mapping:
+                    # Try to determine what type of drive it is
+                    try:
+                        # Use wmic to get drive information
+                        wmic_result = run_process([
+                            "wmic", "logicaldisk", "where", f"deviceid='{drive_letter}:'", 
+                            "get", "providername,drivetype", "/format:csv"
+                        ], check=False)
+                        
+                        if wmic_result and wmic_result.stdout:
+                            lines = [line.strip() for line in wmic_result.stdout.splitlines() if line.strip()]
+                            for line in lines:
+                                if f"{drive_letter.upper()}:" in line.upper():
+                                    parts = line.split(',')
+                                    if len(parts) >= 3:
+                                        drive_type = parts[1].strip() if len(parts) > 1 else ""
+                                        provider_name = parts[2].strip() if len(parts) > 2 else ""
+                                        
+                                        if drive_type == "4" and provider_name:  # Network drive
+                                            existing_mapping = f"{provider_name} (Network Drive)"
+                                        elif drive_type:
+                                            type_names = {"2": "Floppy", "3": "Local Disk", "4": "Network Drive", "5": "CD-ROM"}
+                                            existing_mapping = f"{type_names.get(drive_type, f'Type {drive_type}')}"
+                                        break
+                    except Exception as wmic_error:
+                        self.log.debug(f"Could not get drive info via wmic: {wmic_error}")
+                        existing_mapping = "Unknown drive mapping"
+                    
+                    if existing_mapping:
+                        self.log.warning(f"Drive {drive_letter}: is already in use by {existing_mapping}. Cannot create AYON mapping to {source_path}")
                         self.alert_drive_in_use(drive_letter, existing_mapping, source_path)
                         return False
+                
             except Exception as e:
                 self.log.error(f"Error checking existing drive mapping: {e}")
+                # If we can't determine the existing mapping but drive exists, assume conflict
+                self.log.warning(f"Drive {drive_letter}: appears to be in use but could not determine what is using it. Cannot create AYON mapping to {source_path}")
+                self.alert_drive_in_use(drive_letter, "Unknown existing mapping", source_path)
+                return False
         
         # Create the mapping with simple SUBST command
         try:
@@ -406,6 +466,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 ["subst", f"{drive_letter}:", source_path], 
                 check=False,
                 capture_output=True,
+                text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             
@@ -413,7 +474,45 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 self.log.info(f"Successfully mapped drive {drive_letter}: to {source_path}")
                 return True
             else:
-                self.log.error(f"Failed to create drive mapping. Error: {result.stderr}")
+                error_msg = result.stderr.strip() if result.stderr else f"Return code: {result.returncode}"
+                if result.stdout:
+                    error_msg += f" | Output: {result.stdout.strip()}"
+                
+                # Check if this is a "drive already in use" error
+                if (result.returncode == 1 and result.stdout and 
+                    ("Invalid parameter" in result.stdout or "already exists" in result.stdout.lower())):
+                    
+                    # Try to get information about what's using the drive
+                    try:
+                        wmic_result = run_process([
+                            "wmic", "logicaldisk", "where", f"deviceid='{drive_letter}:'", 
+                            "get", "providername,drivetype", "/format:csv"
+                        ], check=False)
+                        
+                        existing_mapping = "Unknown"
+                        if wmic_result and wmic_result.stdout:
+                            lines = [line.strip() for line in wmic_result.stdout.splitlines() if line.strip()]
+                            for line in lines:
+                                if f"{drive_letter.upper()}:" in line.upper():
+                                    parts = line.split(',')
+                                    if len(parts) >= 3:
+                                        drive_type = parts[1].strip() if len(parts) > 1 else ""
+                                        provider_name = parts[2].strip() if len(parts) > 2 else ""
+                                        
+                                        if drive_type == "4" and provider_name:  # Network drive
+                                            existing_mapping = f"{provider_name} (Network Drive)"
+                                        elif drive_type:
+                                            type_names = {"2": "Floppy", "3": "Local Disk", "4": "Network Drive", "5": "CD-ROM"}
+                                            existing_mapping = f"{type_names.get(drive_type, f'Type {drive_type}')}"
+                                        break
+                        
+                        self.log.error(f"Drive {drive_letter}: is already in use by {existing_mapping}. Cannot create AYON mapping to {source_path}")
+                        self.alert_drive_in_use(drive_letter, existing_mapping, source_path)
+                        return False
+                    except Exception as check_error:
+                        self.log.debug(f"Could not determine what's using drive {drive_letter}: {check_error}")
+                
+                self.log.error(f"Failed to create drive mapping. Error: {error_msg}")
                 return False
         except Exception as e:
             self.log.error(f"Error creating drive mapping: {e}")
@@ -458,20 +557,37 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
 
     def alert_drive_in_use(self, drive_letter, current_mapping, desired_mapping):
         """Alert the user that a drive letter is already in use"""
+        # Get suggestions for alternative drive letters
+        available_drives = self._get_available_drive_letters()
+        suggestions = ", ".join(available_drives[:5]) if available_drives else "none available"
+        
         message = (
-            f"Drive {drive_letter}: is already in use!\n\n"
-            f"Current mapping: {current_mapping}\n"
-            f"Desired mapping: {desired_mapping}\n\n"
-            f"Please modify your settings to use a different drive letter."
+            f"Drive {drive_letter}: is already in use and cannot be mapped!\n\n"
+            f"Currently used by: {current_mapping}\n"
+            f"AYON needs to map: {desired_mapping}\n\n"
+            f"To resolve this conflict:\n"
+            f"• Disconnect the existing {drive_letter}: mapping\n"
+            f"• Or remap it to an available drive letter\n\n"
+            f"Available drive letters: {suggestions}\n\n"
+            f"For network drives: Use 'net use {drive_letter}: /delete' to disconnect,\n"
+            f"then reconnect to a different letter."
         )
         
         self.log.warning(f"Drive conflict: {message}")
         
         # Try to show a GUI alert
         try:
-            ctypes.windll.user32.MessageBoxW(0, message, "Google Drive - Drive Conflict", 0x10)
+            ctypes.windll.user32.MessageBoxW(0, message, "AYON Google Drive - Drive Conflict", 0x30)  # Warning icon
         except Exception as e:
             self.log.debug(f"Could not show GUI alert: {e}")
+            
+    def _get_available_drive_letters(self):
+        """Get list of available drive letters"""
+        available = []
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            if not os.path.exists(f"{letter}:\\"):
+                available.append(f"{letter}:")
+        return available
 
     def remove_all_mappings(self):
         """Remove all SUBST mappings created by AYON"""
@@ -493,6 +609,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                         ["subst", f"{drive_letter}:", "/D"], 
                         check=False,
                         capture_output=True,
+                        text=True,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
             

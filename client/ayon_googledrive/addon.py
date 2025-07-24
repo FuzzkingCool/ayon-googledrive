@@ -37,6 +37,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
     _monitor_thread = None
     _monitoring = False
     _notification_thread = None
+    _last_known_status = None  # Cache for quick status updates
     
     def initialize(self, settings):
         """Initialization of addon."""
@@ -188,6 +189,10 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         # Connect the aboutToShow signal to update the menu contents dynamically
         menu.aboutToShow.connect(lambda: self._menu_builder.update_menu_contents(menu))
         
+        # CRITICAL: Connect to parent tray menu's aboutToShow to update our status immediately
+        # This fixes the issue where our submenu status isn't updated until mouseover
+        tray_menu.aboutToShow.connect(lambda: self._update_submenu_status(menu))
+        
         # Add our Google Drive menu to the tray menu
         tray_menu.addMenu(menu)
         
@@ -201,6 +206,25 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         # Initial update of the menu contents
         QtCore.QTimer.singleShot(1000, lambda: self._menu_builder.update_menu_contents(menu))
         
+    def _update_submenu_status(self, menu):
+        """Update just the submenu title and icon when parent tray opens"""
+        log.debug("Updating submenu status on parent tray aboutToShow")
+        
+        # Use cached status from monitoring thread or do quick check
+        try:
+            # Quick non-blocking status update - just update the visual immediately
+            # The full check will happen when user actually opens our submenu
+            if hasattr(self, '_last_known_status'):
+                status_text, status_icon = self._last_known_status
+                self._menu_builder._set_menu_status(menu, status_text, status_icon)
+            else:
+                # Fallback to a default status if no cache available
+                self._menu_builder._set_menu_status(menu, "Google Drive: Checking...", "warning")
+                
+        except Exception as e:
+            log.debug(f"Error updating submenu status: {e}")
+            self._menu_builder._set_menu_status(menu, "Google Drive: Error", "error")
+
     def _update_menu(self):
         """Update menu contents if menu exists"""
         if hasattr(self, '_menu') and self._menu:
@@ -361,7 +385,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         import time
         
         check_interval = 30
-        menu_update_interval = 10
+        menu_update_interval = 3  # Update menu every 3 cycles (90 seconds) instead of 10 (300 seconds)
         log.debug("Google Drive monitoring thread started")
 
         menu_update_counter = 0
@@ -374,6 +398,8 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 is_installed = self._gdrive_manager.is_googledrive_installed()
 
                 if not is_installed:
+                    # Cache status for quick updates
+                    self._last_known_status = ("Google Drive: Not Installed", "error")
                     if not notified_not_installed:
                         from ayon_googledrive.ui.notifications import show_notification
                         QtCore.QTimer.singleShot(
@@ -447,6 +473,12 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 # else: drive_mounted (basic mount) is False, so configured_targets_accessible remains False.
 
                 if not process_running or not drive_mounted:
+                    # Cache status for quick updates
+                    if not process_running:
+                        self._last_known_status = ("Google Drive: Not Running", "warning")
+                    else:
+                        self._last_known_status = ("Google Drive: Connection Issue", "warning")
+                        
                     if retry_count < max_retries:
                         log.warning(f"Google Drive issue detected - process:{process_running}, basic_mount:{drive_mounted}, configured_targets_accessible:{configured_targets_accessible}")
                         from ayon_googledrive.ui.notifications import show_notification
@@ -456,6 +488,9 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                             level="warning",
                             unique_id="gdrive_issue_detected"
                         )
+                        
+                        # Immediately update the menu to reflect connection issue
+                        QtCore.QTimer.singleShot(0, self._update_menu)
                         
                         should_skip_restart = False
                         reason_for_skip = ""
@@ -490,13 +525,21 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                             level="error",
                             unique_id="gdrive_resolve_failed"
                         )
+                        # Update menu to reflect persistent error state
+                        QtCore.QTimer.singleShot(0, self._update_menu)
                         retry_count = 0 # Reset retry for next cycle after cooldown
                 else: # Process is running AND basic_drive_mount is True
                     retry_count = 0 # Reset retries as basic GDrive seems ok
                     if not configured_targets_accessible:
+                        # Cache status for quick updates
+                        self._last_known_status = ("Google Drive: Connection Issue", "warning")
                         log.warning("Google Drive is running and basic mount is present, but some configured mapping target paths are not accessible. Attempting to ensure consistent paths.")
                         self._gdrive_manager.ensure_consistent_paths() # Try to fix mappings
+                        # Update menu to reflect mapping issues
+                        QtCore.QTimer.singleShot(0, self._update_menu)
                     else:
+                        # Cache status for quick updates - everything is OK
+                        self._last_known_status = ("Google Drive: Connected", "ok")
                         # log.debug("Google Drive status OK: Process running, basic mount present, configured targets accessible.")
                         self._gdrive_manager.ensure_consistent_paths() # Ensure actual OS-level mappings are consistent
 

@@ -502,13 +502,13 @@ Comment=Mount Google Drive automatically
                     return True
                 else:
                     # Symlink exists but points elsewhere
-                    self.log.warning(f"Path {target_path} is linked to {current_target} instead of {source_path}")
-                    self.alert_path_in_use(target_path, current_target, source_path)
+                    self.log.warning(f"Path {target_path} is linked to {current_target}. Cannot create AYON mapping to {source_path}")
+                    self.alert_path_in_use(target_path, f"Existing symlink to {current_target}", source_path, mapping_name)
                     return False
             else:
                 # Target exists but is not a symlink
-                self.log.warning(f"Path {target_path} exists but is not a symlink")
-                self.alert_path_in_use(target_path, None, source_path)
+                self.log.warning(f"Path {target_path} exists but is not a symlink. Cannot create AYON mapping to {source_path}")
+                self.alert_path_in_use(target_path, "File or directory", source_path, mapping_name)
                 return False
         
         # Create or update symlink
@@ -635,23 +635,28 @@ Icon=folder-google-drive
     def show_admin_instructions(self, source_path, target_path):
         """Show instructions for operations requiring admin privileges"""
         command = f"sudo ln -sf '{source_path}' '{target_path}'"
-        self.log.debug(f"To create the symlink, run this command in terminal: {command}")
+        self.log.info(f"Admin privileges required. To create the symlink manually: {command}")
         
-        message = (f"Google Drive integration requires creating a symlink at {target_path}.\n\n"
-                  f"Please run this command in terminal:\n{command}")
+        message = (
+            f"AYON Google Drive requires administrator privileges to create a symlink.\n\n"
+            f"Target path: {target_path}\n"
+            f"Source path: {source_path}\n\n"
+            f"Please run this command in terminal:\n{command}\n\n"
+            f"Then restart AYON to complete the setup."
+        )
         
         # Try to show a graphical notification based on desktop environment
         try:
-            if self.desktop_env == 'gnome':
-                subprocess.Popen(["zenity", "--info", "--text", message, "--title", "Google Drive Setup"], 
+            if self.desktop_env == 'gnome' and shutil.which("zenity"):
+                subprocess.Popen(["zenity", "--info", "--text", message, "--title", "AYON Google Drive - Admin Required"], 
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            elif self.desktop_env == 'kde':
-                subprocess.Popen(["kdialog", "--title", "Google Drive Setup", "--msgbox", message],
+            elif self.desktop_env == 'kde' and shutil.which("kdialog"):
+                subprocess.Popen(["kdialog", "--title", "AYON Google Drive - Admin Required", "--msgbox", message],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
                 # Try generic tools
                 if shutil.which("zenity"):
-                    subprocess.Popen(["zenity", "--info", "--text", message, "--title", "Google Drive Setup"],
+                    subprocess.Popen(["zenity", "--info", "--text", message, "--title", "AYON Google Drive - Admin Required"],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 elif shutil.which("xmessage"):
                     subprocess.Popen(["xmessage", "-center", message],
@@ -659,17 +664,77 @@ Icon=folder-google-drive
         except Exception as e:
             self.log.debug(f"Could not show GUI notification: {e}")
     
-    def alert_path_in_use(self, path, current_target, desired_target):
+    def alert_path_in_use(self, path, current_usage, desired_target, mapping_name=None):
         """Alert the user about path conflicts"""
-        if current_target:
-            message = (f"Path conflict: {path} is already linked to {current_target} "
-                      f"instead of {desired_target}")
-        else:
-            message = (f"Path conflict: {path} exists and is not a symlink. "
-                      f"Cannot link to {desired_target}")
+        # Get suggestions for alternative paths
+        available_paths = self._get_alternative_paths(path)
+        suggestions = ", ".join(available_paths[:3]) if available_paths else "none suggested"
         
-        self.log.warning(message)
-        self._show_notification("Google Drive Path Conflict", message)
+        title = "AYON Google Drive - Path Conflict"
+        if mapping_name:
+            title += f" ({mapping_name})"
+        
+        message = (
+            f"Path {path} is already in use and cannot be mapped!\n\n"
+            f"Currently used by: {current_usage}\n"
+            f"AYON needs to map: {desired_target}\n\n"
+            f"To resolve this conflict:\n"
+            f"• Remove or relocate the existing {path}\n"
+            f"• Or use an alternative path\n\n"
+            f"Alternative path suggestions: {suggestions}\n\n"
+            f"For symlinks: Use 'rm {path}' to remove the existing symlink,\n"
+            f"then restart AYON to create the correct mapping."
+        )
+        
+        self.log.warning(f"Path conflict: {message}")
+        self._show_notification(title, message)
+        
+        # Try to show a more detailed GUI dialog
+        self._show_detailed_conflict_dialog(message, title)
+        
+    def _get_alternative_paths(self, original_path):
+        """Get alternative path suggestions"""
+        alternatives = []
+        base_dir = os.path.dirname(original_path)
+        base_name = os.path.basename(original_path)
+        
+        # Suggest numbered alternatives
+        for i in range(2, 6):
+            alt_path = os.path.join(base_dir, f"{base_name}_{i}")
+            if not os.path.exists(alt_path):
+                alternatives.append(alt_path)
+        
+        # Suggest alternative base directories
+        common_alternatives = [
+            f"/home/{os.environ.get('USER', 'user')}/ayon_mounts",
+            "/tmp/ayon_mounts",
+            f"/home/{os.environ.get('USER', 'user')}/Desktop"
+        ]
+        
+        for alt in common_alternatives:
+            alt_path = os.path.join(alt, base_name)
+            if not os.path.exists(alt_path):
+                alternatives.append(alt_path)
+                
+        return alternatives
+        
+    def _show_detailed_conflict_dialog(self, message, title):
+        """Show a detailed conflict dialog using available GUI tools"""
+        try:
+            if self.desktop_env == 'gnome' and shutil.which("zenity"):
+                subprocess.Popen([
+                    "zenity", "--warning", "--text", message, "--title", title, "--width", "400"
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif self.desktop_env == 'kde' and shutil.which("kdialog"):
+                subprocess.Popen([
+                    "kdialog", "--title", title, "--sorry", message
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("zenity"):
+                subprocess.Popen([
+                    "zenity", "--warning", "--text", message, "--title", title, "--width", "400"
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            self.log.debug(f"Could not show detailed conflict dialog: {e}")
     
     def remove_all_mappings(self):
         """Remove all symlink mappings created by AYON"""

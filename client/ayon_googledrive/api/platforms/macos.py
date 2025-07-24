@@ -643,12 +643,14 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                         self._record_mapping(mapping_name, source_path, target_path)
                         return True
                     else:
-                        self.log.warning(f"Symlink {target_path} for '{mapping_name}' exists but points to {current_link_target} (expected {normalized_source_path}). It will be replaced.")
-                        # os.unlink might need admin, handled by the ln -sfn in script later
+                        self.log.warning(f"Symlink {target_path} for '{mapping_name}' exists but points to {current_link_target} (expected {normalized_source_path}). Cannot create AYON mapping.")
+                        self.alert_path_in_use(target_path, f"Existing symlink to {current_link_target}", source_path, mapping_name)
+                        return False
                 except OSError as e:
                     self.log.warning(f"Error checking existing symlink {target_path} for '{mapping_name}': {e}. Will attempt to (re)create.")
             else:
-                self.log.error(f"Path {target_path} for '{mapping_name}' already exists and is not a symlink. Cannot create mapping.")
+                self.log.error(f"Path {target_path} for '{mapping_name}' already exists and is not a symlink. Cannot create AYON mapping.")
+                self.alert_path_in_use(target_path, "File or directory", source_path, mapping_name)
                 return False
 
         # Attempt to create the symlink directly first
@@ -779,6 +781,65 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 self.log.info(f"Cleared active mappings file: {mappings_file}")
             except OSError as e:
                 self.log.error(f"Failed to remove mappings file {mappings_file}: {e}")
+
+    def alert_path_in_use(self, path, current_usage, desired_target, mapping_name):
+        """Alert the user that a path is already in use"""
+        # Get suggestions for alternative paths
+        available_paths = self._get_alternative_paths(path)
+        suggestions = ", ".join(available_paths[:3]) if available_paths else "none suggested"
+        
+        message = (
+            f"Path {path} is already in use and cannot be mapped!\n\n"
+            f"Currently used by: {current_usage}\n"
+            f"AYON needs to map: {desired_target}\n\n"
+            f"To resolve this conflict:\n"
+            f"• Remove or relocate the existing {path}\n"
+            f"• Or use an alternative path\n\n"
+            f"Alternative path suggestions: {suggestions}\n\n"
+            f"For symlinks: Use 'rm {path}' to remove the existing symlink,\n"
+            f"then restart AYON to create the correct mapping."
+        )
+        
+        self.log.warning(f"Path conflict for mapping '{mapping_name}': {message}")
+        
+        # Try to show a GUI alert using AppleScript
+        try:
+            script_content = f'''
+            display dialog "{message.replace('"', '\\"')}" with title "AYON Google Drive - Path Conflict" buttons {{"OK"}} default button "OK" with icon caution
+            '''
+            script_path = os.path.join(tempfile.gettempdir(), f"ayon_gdrive_path_conflict_{mapping_name.replace(' ', '_')}.scpt")
+            with open(script_path, "w") as f:
+                f.write(script_content)
+            
+            subprocess.run(["osascript", script_path], capture_output=True)
+            
+            try:
+                os.remove(script_path)
+            except Exception:
+                pass
+                
+        except Exception as e:
+            self.log.debug(f"Could not show GUI alert: {e}")
+            
+    def _get_alternative_paths(self, original_path):
+        """Get alternative path suggestions"""
+        alternatives = []
+        base_dir = os.path.dirname(original_path)
+        base_name = os.path.basename(original_path)
+        
+        # Suggest numbered alternatives
+        for i in range(2, 6):
+            alt_path = os.path.join(base_dir, f"{base_name}_{i}")
+            if not os.path.exists(alt_path):
+                alternatives.append(alt_path)
+        
+        # Suggest alternative base directories
+        if "/Volumes/" in original_path:
+            alt_base = original_path.replace("/Volumes/", "/Users/Shared/")
+            if not os.path.exists(alt_base):
+                alternatives.append(alt_base)
+        
+        return alternatives
 
     def check_mapping_exists(self, target_path):
         """Check if a mapping exists at the target path"""
