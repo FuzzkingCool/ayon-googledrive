@@ -19,7 +19,7 @@ DEFAULT_GDRIVE_SETTINGS = {
     "localization": {
         "shared_drive_names": [
             {"name": "English", "locale_code": "en", "shared_drives_names": ["Shared drives", "Shared Drives"]},
-            {"name": "French", "locale_code": "fr", "shared_drives_names": ["Drive partagés", "Drive partagé"]},
+            {"name": "French", "locale_code": "fr", "shared_drives_names": ["Drive partagés", "Drive partagé", "Disques partagés"]},
             {"name": "German", "locale_code": "de", "shared_drives_names": ["Geteilte Ablagen"]},
             {"name": "Italian", "locale_code": "it", "shared_drives_names": ["Drive condivisi"]},
             {"name": "Spanish (LatAm/ES)", "locale_code": "es", "shared_drives_names": ["Unidades compartidas"]},
@@ -100,7 +100,7 @@ class LocalizationSettings(BaseSettingsModel):
     shared_drive_names: List[SharedDriveName] = SettingsField(
         default_factory=lambda: [
             SharedDriveName(name="English", locale_code="en", shared_drives_names=["Shared drives", "Shared Drives"]),
-            SharedDriveName(name="French", locale_code="fr", shared_drives_names=["Drive partagés", "Drive partagé"]),
+            SharedDriveName(name="French", locale_code="fr", shared_drives_names=["Drive partagés", "Drive partagé", "Disques partagés"]),
             SharedDriveName(name="German", locale_code="de", shared_drives_names=["Geteilte Ablagen"]),
             SharedDriveName(name="Italian", locale_code="it", shared_drives_names=["Drive condivisi"]),
             SharedDriveName(name="Spanish (LatAm/ES)", locale_code="es", shared_drives_names=["Unidades compartidas"]),

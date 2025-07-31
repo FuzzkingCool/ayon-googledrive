@@ -8,7 +8,7 @@ class GDrivePlatformBase:
         "Shared drives",  # English
         "Shared Drives",  # English (alternative capitalization)
         "Drive partagés",  # French
-        "Drive partagé",  # French (singular)
+        "Disques partagés",  # French (fr-FR)
         "Geteilte Ablagen",  # German
         "Drive condivisi",  # Italian
         "Unidades compartidas",  # Spanish (es and es-419)
@@ -35,29 +35,45 @@ class GDrivePlatformBase:
     def _get_shared_drives_names(self):
         """Get shared drive names from settings or use defaults"""
         try:
-            if self.settings and "localization" in self.settings:
-                localization = self.settings["localization"]
-                if "shared_drive_names" in localization:
-                    shared_drive_names = localization["shared_drive_names"]
-                    if isinstance(shared_drive_names, list):
-                        # Extract just the names from the settings structure
-                        names = []
-                        for item in shared_drive_names:
-                            if isinstance(item, dict) and "shared_drives_names" in item:
-                                # Handle the new structure where shared_drives_names is a list
-                                shared_names = item["shared_drives_names"]
-                                if isinstance(shared_names, list):
-                                    names.extend(shared_names)
-                                elif isinstance(shared_names, str):
-                                    names.append(shared_names)
-                            elif isinstance(item, dict) and "shared_drives_name" in item:
-                                # Handle legacy structure for backward compatibility
-                                names.append(item["shared_drives_name"])
-                            elif isinstance(item, str):
-                                names.append(item)
-                        if names:
-                            self.log.debug(f"Using shared drive names from settings: {names}")
-                            return names
+            self.log.debug(f"Settings available: {self.settings is not None}")
+            if self.settings:
+                self.log.debug(f"Settings keys: {list(self.settings.keys())}")
+                if "localization" in self.settings:
+                    localization = self.settings["localization"]
+                    self.log.debug(f"Localization keys: {list(localization.keys())}")
+                    if "shared_drive_names" in localization:
+                        shared_drive_names = localization["shared_drive_names"]
+                        self.log.debug(f"Shared drive names from settings: {shared_drive_names}")
+                        if isinstance(shared_drive_names, list):
+                            # Extract just the names from the settings structure
+                            names = []
+                            for item in shared_drive_names:
+                                self.log.debug(f"Processing item: {item}")
+                                if isinstance(item, dict) and "shared_drives_names" in item:
+                                    # Handle the new structure where shared_drives_names is a list
+                                    shared_names = item["shared_drives_names"]
+                                    if isinstance(shared_names, list):
+                                        names.extend(shared_names)
+                                    elif isinstance(shared_names, str):
+                                        names.append(shared_names)
+                                elif isinstance(item, dict) and "shared_drives_name" in item:
+                                    # Handle legacy structure for backward compatibility
+                                    names.append(item["shared_drives_name"])
+                                elif isinstance(item, str):
+                                    names.append(item)
+                            if names:
+                                self.log.debug(f"Using shared drive names from settings: {names}")
+                                return names
+                            else:
+                                self.log.warning("No shared drive names extracted from settings")
+                        else:
+                            self.log.warning(f"Shared drive names is not a list: {type(shared_drive_names)}")
+                    else:
+                        self.log.warning("No 'shared_drive_names' found in localization settings")
+                else:
+                    self.log.warning("No 'localization' found in settings")
+            else:
+                self.log.warning("No settings available")
         except Exception as e:
             self.log.warning(f"Error getting shared drive names from settings: {e}")
         

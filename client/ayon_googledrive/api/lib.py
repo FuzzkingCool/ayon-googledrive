@@ -14,8 +14,8 @@ from ..version import __version__ as version
 def get_settings():
     """Get Google Drive settings from AYON"""
     try:        
-        settings = get_addon_studio_settings("ayon_googledrive", version)
-        return settings.get("ayon_googledrive", {})
+        settings = get_addon_studio_settings("googledrive", version)
+        return settings.get("googledrive", {})
     except Exception as e:
         log.warning(f"Failed to get settings from AYON: {e}")
         return {}
