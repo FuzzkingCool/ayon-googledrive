@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import re
 from typing import Dict, List, Any, Optional, Union
 # from pydantic import Field, validator

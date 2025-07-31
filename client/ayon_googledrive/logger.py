@@ -65,7 +65,7 @@ class SafeStreamHandler(logging.StreamHandler):
 if ayon_debug:
     try:
         file_path = os.path.join(log_dir, f"{ADDON_NAME}_debug.log")
-        file_handler = logging.FileHandler(file_path)
+        file_handler = logging.FileHandler(file_path, encoding='utf-8')
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(formatter)
         file_handler.setLevel(logging.DEBUG)
@@ -75,7 +75,16 @@ if ayon_debug:
 
 # Add console handler with explicit stream and error handling
 try:
-    stream_handler = SafeStreamHandler(stream=sys.stderr)
+    # Use UTF-8 encoding for console output on Windows
+    if sys.platform == "win32":
+        import codecs
+        # Force UTF-8 encoding for stderr on Windows
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8')
+        stream_handler = SafeStreamHandler(stream=codecs.getwriter('utf-8')(sys.stderr.buffer))
+    else:
+        stream_handler = SafeStreamHandler(stream=sys.stderr)
+    
     stream_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
     stream_handler.setLevel(logging.DEBUG if ayon_debug else log.level)
     log.addHandler(stream_handler)

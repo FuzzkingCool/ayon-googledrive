@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 import os
 import platform
 import time
+import logging
 
 from ayon_googledrive.api.lib import get_settings
 from ayon_googledrive.gdrive_installer import GDriveInstaller
@@ -100,7 +102,7 @@ class GDriveManager():
         success = False
         try:
             # Create lock file to prevent multiple installation attempts
-            with open(lock_file, "w") as f:
+            with open(lock_file, "w", encoding="utf-8") as f:
                 f.write(str(time.time()))
             
             if platform.system() == "Windows":
@@ -139,162 +141,156 @@ class GDriveManager():
             return False
 
     def get_shared_drives(self):
-        """Get a list of available shared drives"""
-        return self.platform_handler.list_shared_drives()
+        """Get list of available shared drives"""
+        try:
+            drives = self.platform_handler.list_shared_drives()
+            if drives:
+                return drives
+            else:
+                self.log.warning("GDriveManager: No shared drives found")
+                return []
+        except Exception as e:
+            self.log.error(f"GDriveManager: Error getting shared drives: {e}")
+            return []
 
     def ensure_consistent_paths(self):
-        """Ensure consistent path access across platforms"""
-        try:
-            # Check if user is logged in first
-            if not self.is_user_logged_in():
-                self.log.warning("No user is logged into Google Drive")
-                return False
-
-            # First ensure Google Drive is mounted at the right location
-            result = self.platform_handler.ensure_mount_point(self._get_desired_mount())
-
-            # Handle mount point mismatch notification based on settings
-            if isinstance(result, tuple) and not result[0]:  # Mismatch detected, got (False, current_mount)
-                self.log.warning("Google Drive mount point might not be at the expected location")
-
-                # Check if we should show notification
-                show_notifications = self.settings.get("show_mount_mismatch_notifications", False)
-
-                if show_notifications:
-                    from ayon_googledrive.ui import notifications
-                    current_mount = result[1]
-                    desired_mount = self._get_desired_mount()
-                    message = (
-                        f"Google Drive is mounted at {current_mount}, not at desired mount point {desired_mount}. "
-                        f"This can only be changed in Google Drive settings."
-                    )
-                    notifications.show_notification(message, "Google Drive Mount Point Mismatch")
-
-                # Continue anyway - maybe individual mappings will work
-            elif not result:  # Simple False result - something else went wrong
-                self.log.warning("Google Drive mount point might not be at the expected location")
-                # Continue anyway - maybe individual mappings will work
-
-            # Get all configured mappings
-            mappings = self._get_mappings()
-
-            if not mappings:
-                self.log.info("No drive mappings configured - nothing to map")
-                return True
-
-            # Process each mapping
-            success = True
-            for mapping in mappings:
-                if not self._process_mapping(mapping):
-                    self.log.error(f"Failed to process mapping: {mapping.get('name', 'unnamed')}")
-                    success = False
-
-            return success
-
-        except Exception as e:
-            self.log.error(f"Error ensuring consistent paths: {e}", exc_info=True)
+        """Ensure Google Drive paths are consistent with configured mappings"""
+        if not self.is_user_logged_in():
+            self.log.warning("No user is logged into Google Drive")
             return False
 
-    def _get_mappings(self):
-        """Get mappings from settings"""
-        if self.settings:
-            return self.settings.get("mappings", [])
+        # Check if Google Drive is mounted
+        if not self.is_googledrive_mounted():
+            self.log.warning("Google Drive mount point might not be at the expected location")
+            return False
 
-        # If settings aren't already loaded, get them
-        settings = get_settings()
-        return settings.get("mappings", [])
+        # Get configured mappings
+        mappings = self._get_mappings()
+        self.log.debug(f"Found {len(mappings) if mappings else 0} configured mappings")
+        if mappings:
+            for i, mapping in enumerate(mappings):
+                self.log.debug(f"  Mapping {i+1}: {mapping.get('name', 'unnamed')} -> {mapping.get('source_path', 'no source')} -> {mapping.get('windows_target', 'no target')}")
+        
+        if not mappings:
+            self.log.info("No drive mappings configured - nothing to map")
+            return True
+
+        # Process each mapping
+        success = True
+        for mapping in mappings:
+            try:
+                if not self._process_mapping(mapping):
+                    success = False
+            except Exception as e:
+                self.log.error(f"Failed to process mapping: {mapping.get('name', 'unnamed')}")
+                success = False
+
+        return success
+
+    def _get_mappings(self):
+        """Get configured drive mappings from settings"""
+        mappings = self.settings.get("mappings", [])
+        self.log.debug(f"Retrieved mappings from settings: {len(mappings) if mappings else 0} mappings found")
+        return mappings
 
     def _get_desired_mount(self):
-        """Get desired mount point from settings"""
-        if self.settings:
-            mount = self.settings.get("googledrive_mount", {})
-        else:
-            # If settings aren't already loaded, get them
-            settings = get_settings()
-            mount = settings.get("googledrive_mount", {})
-
+        """Get the desired mount point for this platform"""
+        googledrive_mount = self.settings.get("googledrive_mount", {})
         if self.os_type == "Windows":
-            return mount.get("windows", "G:")
+            return googledrive_mount.get("windows", "G:\\")
         elif self.os_type == "Darwin":
-            return mount.get("macos", "/Volumes/GoogleDrive")
+            return googledrive_mount.get("macos", "/Volumes/GoogleDrive")
         elif self.os_type == "Linux":
-            return mount.get("linux", "/mnt/google_drive")
-
-        return None
+            return googledrive_mount.get("linux", "/mnt/google_drive")
+        else:
+            self.log.warning("Google Drive mount point might not be at the expected location")
+            return None
 
     def _process_mapping(self, mapping):
         """Process a single drive mapping"""
+        name = mapping.get("name")
+        source_path = mapping.get("source_path")
+        
+        # Get target path for current platform
+        if self.os_type == "Windows":
+            target = mapping.get("windows_target")
+        elif self.os_type == "Darwin":
+            target = mapping.get("macos_target")
+        elif self.os_type == "Linux":
+            target = mapping.get("linux_target")
+        else:
+            target = None
+
+        if not source_path or not target:
+            self.log.warning(f"Incomplete mapping definition for '{name}': source={source_path}, target={target}")
+            return False
+
+        # Find the actual source path within Google Drive
+        actual_source = self.platform_handler.find_source_path(source_path)
+        if not actual_source:
+            self.log.error(f"Could not find source path for {source_path}")
+            return False
+
         try:
-            name = mapping.get("name", "unnamed")
-            source_path = mapping.get("source_path", "")
-
-            # Get target based on platform
-            if self.os_type == "Windows":
-                target = mapping.get("windows_target", "")
-            elif self.os_type == "Darwin":
-                target = mapping.get("macos_target", "")
-            elif self.os_type == "Linux":
-                target = mapping.get("linux_target", "")
-            else:
-                target = ""
-
-            if not source_path or not target:
-                self.log.warning(f"Incomplete mapping definition for '{name}': source={source_path}, target={target}")
-                return False
-
-            # self.log.debug(f"Processing mapping '{name}': {source_path} -> {target}")
-
-            # Find the actual source path
-            full_source_path = self.platform_handler.find_source_path(source_path)
-            if not full_source_path:
-                self.log.error(f"Could not find source path for {source_path}")
-                return False
-
-            # Create the mapping with name
-            return self.platform_handler.create_mapping(full_source_path, target, name)
-
+            # Create the mapping
+            return self.platform_handler.create_mapping(actual_source, target, name)
         except Exception as e:
             self.log.error(f"Error processing mapping: {e}")
             return False
 
     def is_googledrive_mounted(self):
-        """Check if Google Drive is mounted and available (platform-specific)."""
+        """Check if Google Drive is mounted at the expected location"""
+        desired_mount = self._get_desired_mount()
+        if not desired_mount:
+            return False
+
         if self.os_type == "Windows":
-            for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-                shared_drives_path = f"{drive_letter}:\\Shared drives"
-                if os.path.exists(shared_drives_path):
-                    return True
-            return False
+            return os.path.exists(desired_mount)
         elif self.os_type == "Darwin":
-            # Check /Volumes/GoogleDrive or CloudStorage
-            if os.path.exists("/Volumes/GoogleDrive"):
-                return True
-            cloud_storage = os.path.expanduser("~/Library/CloudStorage")
-            if os.path.exists(cloud_storage):
-                for item in os.listdir(cloud_storage):
-                    if item.startswith(("GoogleDrive-", "Google Drive-")):
-                        gdrive_path = os.path.join(cloud_storage, item)
-                        if os.path.isdir(gdrive_path):
-                            return True
-            return False
+            return os.path.exists(desired_mount)
         elif self.os_type == "Linux":
-            # Check common mount points
-            possible_mounts = [
-                "/mnt/google_drive",
-                "/mnt/google-drive",
-                os.path.expanduser("~/google-drive"),
-                os.path.expanduser("~/GoogleDrive"),
-                os.path.expanduser("~/Google Drive")
-            ]
-            for path in possible_mounts:
-                if os.path.exists(path) and os.path.isdir(path):
-                    try:
-                        if os.listdir(path):
-                            return True
-                    except Exception:
-                        continue
+            return os.path.exists(desired_mount)
+        else:
             return False
-        return False
+
+    def debug_localization_info(self):
+        """Debug method to print localization information - always runs for troubleshooting"""
+            
+        self.log.info(f"Platform: {self.os_type}")
+        
+        if self.settings:
+            localization = self.settings.get("localization", {})
+            if localization:
+                shared_drive_names = localization.get("shared_drive_names", [])
+                if isinstance(shared_drive_names, list):
+                    self.log.info(f"Loaded {len(shared_drive_names)} localization configurations")
+                else:
+                    self.log.warning("Shared drive names not configured properly")
+            else:
+                self.log.warning("No localization settings found")
+        else:
+            self.log.warning("No settings available")
+        
+        # Get shared drive names from platform handler
+        try:
+            shared_names = self.platform_handler._get_shared_drives_names()
+            self.log.info(f"Using {len(shared_names)} shared drive name variants")
+        except Exception as e:
+            self.log.error(f"Error getting shared drive names: {e}")
+        
+        # Get system locale
+        try:
+            import locale
+            current_locale = locale.getlocale()
+            self.log.info(f"System locale: {current_locale}")
+        except Exception as e:
+            self.log.debug(f"Could not get system locale: {e}")
+        
+        # Call platform-specific path debugging
+        try:
+            self.platform_handler.debug_path_formation()
+        except Exception as e:
+            self.log.error(f"Error in path formation debugging: {e}")
 
     
 

@@ -65,8 +65,6 @@ class GDriveMenuBuilder:
             # Process Qt events to show loading message
             QtWidgets.QApplication.processEvents()
             
-            self.log.debug("Updating Google Drive menu contents")
-            
             # Clear the menu again before adding actual items
             menu.clear()
             
@@ -227,8 +225,6 @@ class GDriveMenuBuilder:
                 subprocess.run(["open", path])
             else:  # Linux
                 subprocess.run(["xdg-open", path])
-                
-            self.log.debug(f"Opening location: {path}")
         except Exception as e:
             self.log.error(f"Error opening location {path}: {e}")
 

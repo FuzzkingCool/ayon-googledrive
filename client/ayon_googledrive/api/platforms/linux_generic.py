@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import subprocess
 import shutil
@@ -410,17 +411,21 @@ Comment=Mount Google Drive automatically
     def find_source_path(self, relative_path):
         """Find the full source path for a relative path in Google Drive on Linux"""
         clean_path = clean_relative_path(relative_path).replace("\\", "/")
+        self.log.info(f"Linux: Looking for path: '{clean_path}'")
         
         # Find the base Google Drive mount point
         mount_point = self.find_googledrive_mount()
         if not mount_point:
-            self.log.error("Could not find Google Drive mount point")
+            self.log.error("Linux: Could not find Google Drive mount point")
             return None
         
-        self.log.debug(f"Looking for relative path '{clean_path}' in {mount_point}")
+        self.log.info(f"Linux: Found Google Drive mount point: {mount_point}")
+        self.log.debug(f"Linux: Looking for relative path '{clean_path}' in {mount_point}")
         
         # Get shared drive names from settings
         shared_drives_names = self._get_shared_drives_names()
+        self.log.info(f"Linux: Using {len(shared_drives_names)} localized shared drives names")
+        self.log.debug(f"Linux: Shared drives names to check: {shared_drives_names}")
         
         # Try various path patterns
         path_patterns = [
@@ -440,28 +445,32 @@ Comment=Mount Google Drive automatically
         # Try stripping My Drive prefix if present
         path_patterns.append(os.path.join(mount_point, clean_path.replace("My Drive/", "")))
         
-        for path in path_patterns:
+        self.log.debug(f"Linux: Trying {len(path_patterns)} path patterns")
+        
+        for i, path in enumerate(path_patterns):
+            self.log.debug(f"Linux: Pattern {i+1}: {path}")
             if os.path.exists(path):
-                self.log.debug(f"Found source path: {path}")
+                self.log.info(f"Linux: Found source path: {path}")
                 return path
         
         # Additional logging to help diagnose issues
-        self.log.warning(f"Could not find '{clean_path}' in Google Drive mount. Contents of mount point:")
+        self.log.warning(f"Linux: Could not find '{clean_path}' in Google Drive mount. Contents of mount point:")
         try:
             contents = os.listdir(mount_point)
-            for item in contents:
-                self.log.debug(f"- {item}")
+            self.log.debug(f"Linux: Mount point contents: {contents}")
             
             # Check for Shared drives folder using settings
             for sd_name in shared_drives_names:
                 shared_drives_path = os.path.join(mount_point, sd_name)
                 if os.path.exists(shared_drives_path):
                     shared_drives = os.listdir(shared_drives_path)
-                    self.log.debug(f"Shared drives contents ({sd_name}): {shared_drives}")
+                    self.log.debug(f"Linux: Shared drives contents ({sd_name}): {shared_drives}")
+                else:
+                    self.log.debug(f"Linux: Shared drives folder not found: {shared_drives_path}")
         except Exception as e:
-            self.log.warning(f"Error listing mount contents: {e}")
+            self.log.warning(f"Linux: Error listing mount contents: {e}")
         
-        self.log.error(f"Could not locate path '{clean_path}' in Google Drive")
+        self.log.error(f"Linux: Could not locate path '{clean_path}' in Google Drive")
         return None
     
     def list_shared_drives(self):
@@ -471,26 +480,40 @@ Comment=Mount Google Drive automatically
         # Find the Google Drive mount point
         mount_point = self.find_googledrive_mount()
         if not mount_point:
-            self.log.warning("Could not find Google Drive mount point")
+            self.log.warning("Linux: Could not find Google Drive mount point")
             return drives
+        
+        self.log.info(f"Linux: Found Google Drive mount point: {mount_point}")
         
         # Get shared drive names from settings
         shared_drives_names = self._get_shared_drives_names()
+        self.log.info(f"Linux: Looking for shared drives using {len(shared_drives_names)} localized names")
+        self.log.debug(f"Linux: Shared drives names to check: {shared_drives_names}")
         
         # Check for each shared drive name variant
         for sd_name in shared_drives_names:
             shared_drives_path = os.path.join(mount_point, sd_name)
+            self.log.debug(f"Linux: Checking shared drives path: {shared_drives_path}")
+            
             if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
                 try:
+                    self.log.info(f"Linux: Found shared drives folder: {shared_drives_path}")
                     items = os.listdir(shared_drives_path)
+                    self.log.debug(f"Linux: Found items in {shared_drives_path}: {items}")
+                    
                     drives = [d for d in items if os.path.isdir(os.path.join(shared_drives_path, d))]
                     if drives:
-                        self.log.debug(f"Found shared drives at {shared_drives_path}: {drives}")
+                        self.log.info(f"Linux: Successfully found {len(drives)} shared drives: {drives}")
+                        self.log.debug(f"Linux: Returning drives from {shared_drives_path}: {drives}")
                         return drives
+                    else:
+                        self.log.debug(f"Linux: No valid shared drives found in {shared_drives_path}")
                 except Exception as e:
-                    self.log.error(f"Error listing shared drives at {shared_drives_path}: {e}")
+                    self.log.error(f"Linux: Error listing shared drives at {shared_drives_path}: {e}")
+            else:
+                self.log.debug(f"Linux: Shared drives folder not found: {shared_drives_path}")
         
-        self.log.warning("No shared drives found")
+        self.log.warning("Linux: No shared drives found in any detected paths.")
         return drives
     
     def create_mapping(self, source_path, target_path, mapping_name=None):
@@ -505,6 +528,9 @@ Comment=Mount Google Drive automatically
                 current_target = os.readlink(target_path)
                 if current_target == source_path:
                     self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
+                    return True
+                elif self._is_legitimate_gdrive_symlink(target_path, source_path):
+                    self.log.info(f"Symlink for '{mapping_name}' at {target_path} exists and points to the same Google Drive content: {current_target}")
                     return True
                 else:
                     # Symlink exists but points elsewhere
@@ -774,4 +800,58 @@ Icon=folder-google-drive
             return True
         except Exception as e:
             self.log.error(f"Error removing mappings: {e}")
+            return False
+
+    def _paths_point_to_same_content(self, path1, path2):
+        """Check if two paths point to the same content (handles symlinks and different paths to same content)"""
+        try:
+            # Normalize both paths
+            norm_path1 = os.path.normpath(os.path.abspath(path1))
+            norm_path2 = os.path.normpath(os.path.abspath(path2))
+            
+            # If they're the same path, they point to the same content
+            if norm_path1 == norm_path2:
+                return True
+            
+            # Check if both paths exist
+            if not os.path.exists(norm_path1) or not os.path.exists(norm_path2):
+                return False
+            
+            # Use os.path.samefile to check if they point to the same inode/content
+            return os.path.samefile(norm_path1, norm_path2)
+        except (OSError, ValueError):
+            return False
+
+    def _is_legitimate_gdrive_symlink(self, symlink_path, expected_source):
+        """Check if an existing symlink is a legitimate Google Drive symlink pointing to the same content"""
+        try:
+            if not os.path.islink(symlink_path):
+                return False
+                
+            current_target = os.readlink(symlink_path)
+            if not os.path.isabs(current_target):
+                current_target = os.path.normpath(os.path.join(os.path.dirname(symlink_path), current_target))
+            else:
+                current_target = os.path.normpath(current_target)
+            
+            # Check if the symlink points to the same content as our expected source
+            if self._paths_point_to_same_content(current_target, expected_source):
+                return True
+            
+            # Additional check: if both paths are within Google Drive locations, they might be equivalent
+            gdrive_paths = self._find_gdrive_mount_points()
+            current_in_gdrive = any(current_target.startswith(gp) for gp in gdrive_paths)
+            expected_in_gdrive = any(expected_source.startswith(gp) for gp in gdrive_paths)
+            
+            if current_in_gdrive and expected_in_gdrive:
+                # Both are Google Drive paths, check if they have the same relative structure
+                for gdrive_path in gdrive_paths:
+                    if current_target.startswith(gdrive_path) and expected_source.startswith(gdrive_path):
+                        current_rel = os.path.relpath(current_target, gdrive_path)
+                        expected_rel = os.path.relpath(expected_source, gdrive_path)
+                        if current_rel == expected_rel:
+                            return True
+            
+            return False
+        except (OSError, ValueError):
             return False

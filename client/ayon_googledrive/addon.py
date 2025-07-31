@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import platform
 import sys
@@ -44,10 +45,15 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         log.debug("Initializing Google Drive addon")
  
         self.settings = settings.get("googledrive", {})
-        log.debug(f"Loaded settings: {self.settings}")
+        # Use repr() to safely display Unicode characters in settings
+        log.debug(f"Loaded settings: {repr(self.settings)}")
 
         # Initialize manager service
         self._gdrive_manager = GDriveManager(self.settings)
+        
+        # Debug localization information for troubleshooting
+        self._gdrive_manager.debug_localization_info()
+        
         self._menu_builder = GDriveMenuBuilder(self)
 
         # Initialize other properties
@@ -227,7 +233,10 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         
     def _update_submenu_status(self, menu):
         """Update just the submenu title and icon when parent tray opens"""
-        log.debug("Updating submenu status on parent tray aboutToShow")
+        # Only log occasionally to reduce spam
+        if not hasattr(self, '_last_submenu_log') or time.time() - self._last_submenu_log > 60:
+            log.debug("Updating submenu status on parent tray aboutToShow")
+            self._last_submenu_log = time.time()
         
         # Perform a quick, non-blocking status check instead of relying on cache
         try:
@@ -466,18 +475,34 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         import os
         import time
         
-        check_interval = 30
-        menu_update_interval = 3  # Update menu every 3 cycles (90 seconds) instead of 10 (300 seconds)
+        check_interval = 60  # Increased from 30 to 60 seconds
+        menu_update_interval = 5  # Update menu every 5 cycles (5 minutes) instead of 3 (3 minutes)
         log.debug("Google Drive monitoring thread started")
 
         menu_update_counter = 0
         retry_count = 0
         max_retries = 5
         notified_not_installed = False
+        
+        # Cache for status checks to reduce redundant operations
+        status_cache = {}
+        cache_ttl = 30  # 30 seconds cache for status checks
 
         while self._monitoring:
             try:
-                is_installed = self._gdrive_manager.is_googledrive_installed()
+                current_time = time.time()
+                
+                # Check installation status with caching
+                cache_key = "is_installed"
+                if (cache_key not in status_cache or 
+                    current_time - status_cache[cache_key]["timestamp"] > cache_ttl):
+                    is_installed = self._gdrive_manager.is_googledrive_installed()
+                    status_cache[cache_key] = {
+                        "value": is_installed,
+                        "timestamp": current_time
+                    }
+                else:
+                    is_installed = status_cache[cache_key]["value"]
 
                 if not is_installed:
                     # Cache status for quick updates
@@ -504,7 +529,18 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 # Only reach here if installed
                 notified_not_installed = False
 
-                process_running = self._gdrive_manager.is_googledrive_running()
+                # Check process running status with caching
+                cache_key = "is_running"
+                if (cache_key not in status_cache or 
+                    current_time - status_cache[cache_key]["timestamp"] > cache_ttl):
+                    process_running = self._gdrive_manager.is_googledrive_running()
+                    status_cache[cache_key] = {
+                        "value": process_running,
+                        "timestamp": current_time
+                    }
+                else:
+                    process_running = status_cache[cache_key]["value"]
+                
                 drive_mounted = False
                 mounted_letter = None
                 if platform.system() == "Windows":

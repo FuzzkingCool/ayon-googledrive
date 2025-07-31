@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import ctypes
 import glob
 import os
@@ -6,6 +7,7 @@ import re
 import subprocess
 import threading
 import time
+import locale
 
 from ayon_googledrive.api.lib import clean_relative_path, run_process
 from ayon_googledrive.api.platforms.base import GDrivePlatformBase
@@ -13,12 +15,10 @@ from ayon_googledrive.logger import log
 
 
 class GDriveWindowsPlatform(GDrivePlatformBase):
-    """Windows-specific implementation for Google Drive operations"""
+    """Windows-specific Google Drive operations"""
     
     def __init__(self, settings=None):
         super().__init__(settings)
-        self.os_type = "Windows"
-        self.log = log
         self._installing = False
 
     @property
@@ -132,13 +132,20 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                     version_dirs.sort(key=version_key, reverse=True)
                     latest_version_dir = version_dirs[0][1]
                     exe_path = os.path.join(latest_version_dir, "GoogleDriveFS.exe")
-                    log.debug(f"Using Google Drive executable from wildcard: {exe_path}")
+                    # Only log once per session
+                    if not hasattr(self, '_logged_executable_path'):
+                        log.debug(f"Using Google Drive executable from wildcard: {exe_path}")
+                        self._logged_executable_path = exe_path
                     return exe_path
                 if path.lower().endswith('.exe'):
-                    log.debug(f"Using configured Google Drive path: {path}")
+                    if not hasattr(self, '_logged_executable_path'):
+                        log.debug(f"Using configured Google Drive path: {path}")
+                        self._logged_executable_path = path
                     return path
                 candidate = os.path.join(path, "GoogleDriveFS.exe")
-                log.debug(f"Using configured Google Drive folder: {candidate}")
+                if not hasattr(self, '_logged_executable_path'):
+                    log.debug(f"Using configured Google Drive folder: {candidate}")
+                    self._logged_executable_path = candidate
                 return candidate
         # Default: find latest versioned folder
         base_dir = r"C:\\Program Files\\Google\\Drive File Stream"
@@ -164,14 +171,18 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         return exe_path
     
     def find_source_path(self, relative_path):
-        """Find the full path to a Google Drive item on Windows"""
-        clean_path = clean_relative_path(relative_path)
-        if platform.system() == "Windows":
-            clean_path = clean_path.lstrip("\\/")
-
+        """Find the full source path for a relative path in Google Drive on Windows"""
+        clean_path = relative_path.strip()
+        
+        # Fix common path format issues
+        # Remove leading backslashes that might be in the configuration
+        clean_path = clean_path.lstrip('\\/')
+        
         # Check all available drive letters
         drive_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         found_drive_bases = []
+        
+        self.log.debug(f"Windows: Looking for source path: '{clean_path}'")
 
         for drive_letter in drive_letters:
             drive_root = f"{drive_letter}:\\"
@@ -179,11 +190,13 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 continue
 
             # Check for any of the internationalized "Shared Drives" names
-            for sd_name in self._get_shared_drives_names():
+            shared_drives_names = self._get_shared_drives_names()
+            
+            for sd_name in shared_drives_names:
                 potential_shared_drives_folder = os.path.join(drive_root, sd_name)
                 if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
-                    self.log.debug(f"Found potential Shared Drives folder at {potential_shared_drives_folder}")
                     found_drive_bases.append(potential_shared_drives_folder)
+                    
                     # Check if this is the My Drive folder as well
                     my_drive_path = os.path.join(drive_root, "My Drive") # Common name for My Drive
                     if os.path.exists(my_drive_path) and os.path.isdir(my_drive_path):
@@ -194,11 +207,14 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
 
         if not found_drive_bases and any(name in clean_path for name in self._get_shared_drives_names()):
             # If we expected a shared drive path but found no "Shared Drives" folders
-            self.log.error(f"Could not find any 'Shared Drives' folder. Cannot locate: {clean_path}")
+            self.log.error(f"Windows: Could not find any 'Shared Drives' folder. Cannot locate: {clean_path}")
+            self.log.info("Windows: This could indicate Google Drive is not mounted or using different localized names")
             return None
         elif not found_drive_bases:
-            self.log.error(f"Could not find any Google Drive mount point. Cannot locate: {clean_path}")
+            self.log.error(f"Windows: Could not find any Google Drive mount point. Cannot locate: {clean_path}")
             return None
+        
+        self.log.debug(f"Windows: Found drive bases: {found_drive_bases}")
 
         # Deduplicate and prioritize user override if it exists and is a shared drive base
         unique_bases = []
@@ -207,16 +223,15 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             if base not in unique_bases:
                 unique_bases.append(base)
 
-        self.log.debug(f"Searching for '{clean_path}' in bases: {unique_bases}")
-
         for base_path_to_search in unique_bases:
             # Determine if base_path_to_search is a shared drives folder (e.g., I:\Shared drives) or a root (e.g., I:\)
-            is_shared_drives_folder_itself = any(base_path_to_search.rstrip('\\/').endswith(sep + sd_name) for sep in [os.sep, os.altsep] if sep for sd_name in self._get_shared_drives_names())
+            shared_drives_names = self._get_shared_drives_names()
+            is_shared_drives_folder_itself = any(base_path_to_search.rstrip('\\/').endswith(sep + sd_name) for sep in [os.sep, os.altsep] if sep for sd_name in shared_drives_names)
 
-            if any(name in clean_path for name in self._get_shared_drives_names()):
+            if any(name in clean_path for name in shared_drives_names):
                 actual_item_name = clean_path
                 # Strip all shared drive name variants and separators from the start
-                for sd_name_variant in self._get_shared_drives_names():
+                for sd_name_variant in shared_drives_names:
                     for sep in ['\\', '/']:
                         prefix_to_check = sd_name_variant + sep
                         if actual_item_name.startswith(prefix_to_check):
@@ -229,77 +244,79 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                         continue
                     break
                 # Remove any remaining shared drive name prefix (defensive)
-                for sd_name_variant in self._get_shared_drives_names():
+                for sd_name_variant in shared_drives_names:
                     for sep in ['\\', '/']:
                         prefix_to_check = sd_name_variant + sep
                         if actual_item_name.startswith(prefix_to_check):
                             actual_item_name = actual_item_name[len(prefix_to_check):]
+                            
                 # Only append shared drive name if base is root 
                 if is_shared_drives_folder_itself:
                     # base_path_to_search is already a shared drives folder, just append the item name
                     path_variant = os.path.join(base_path_to_search, actual_item_name)
-                    self.log.debug(f"Checking path variant (direct shared folder): {path_variant}")
                     if os.path.exists(path_variant):
-                        self.log.info(f"Found source path: {path_variant}")
                         return path_variant
                 else:
                     # base_path_to_search is a root, append shared drive name and then item name
-                    for sd_name in self._get_shared_drives_names():
+                    for sd_name in shared_drives_names:
                         # Only append if actual_item_name is not empty
-                        path_variant = os.path.join(base_path_to_search, sd_name, actual_item_name)
-                        self.log.debug(f"Checking path variant (root + lang + item): {path_variant}")
+                        if actual_item_name:
+                            path_variant = os.path.join(base_path_to_search, sd_name, actual_item_name)
+                        else:
+                            path_variant = os.path.join(base_path_to_search, sd_name)
                         if os.path.exists(path_variant):
-                            self.log.info(f"Found source path: {path_variant}")
+                            self.log.debug(f"Windows: Found source path: {path_variant}")
                             return path_variant
             else:
-                # Not a shared drive path, treat as My Drive
-                if not is_shared_drives_folder_itself:
-                    path_variant = os.path.join(base_path_to_search, clean_path.lstrip('\\/'))
-                    self.log.debug(f"Checking path variant (My Drive type): {path_variant}")
-                    if os.path.exists(path_variant):
-                        self.log.info(f"Found source path: {path_variant}")
-                        return path_variant
+                # This is a regular path (not a shared drive path)
+                # Try direct path first
+                path_variant = os.path.join(base_path_to_search, clean_path.lstrip('\\/'))
+                if os.path.exists(path_variant):
+                    self.log.debug(f"Windows: Found source path: {path_variant}")
+                    return path_variant
+                
+                # Try with "My Drive" prefix
+                my_drive_path_variant = os.path.join(base_path_to_search, "My Drive", clean_path.lstrip('\\/'))
+                if os.path.exists(my_drive_path_variant):
+                    self.log.debug(f"Windows: Found source path: {my_drive_path_variant}")
+                    return my_drive_path_variant
 
-        self.log.error(f"Could not locate path '{clean_path}' in any derived Google Drive locations.")
+        self.log.error(f"Windows: Could not locate path '{clean_path}' in any derived Google Drive locations.")
         return None
     
     def list_shared_drives(self):
         """List available shared drives on Windows"""
         drives = []
-        potential_bases = []
-
-        # Find Google Drive mount points
+        
+        # Get shared drives names from settings
         shared_drives_names = self._get_shared_drives_names()
-        for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        
+        # Check all available drive letters
+        drive_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        
+        for drive_letter in drive_letters:
             drive_root = f"{drive_letter}:\\"
             if not os.path.exists(drive_root):
                 continue
-            for sd_name in shared_drives_names:
-                shared_drive_folder = os.path.join(drive_root, sd_name)
-                if os.path.exists(shared_drive_folder) and os.path.isdir(shared_drive_folder):
-                    if shared_drive_folder not in potential_bases:
-                        potential_bases.append(shared_drive_folder)
+                
+            for shared_drives_name in shared_drives_names:
+                shared_drives_folder = os.path.join(drive_root, shared_drives_name)
+                
+                if os.path.exists(shared_drives_folder) and os.path.isdir(shared_drives_folder):
+                    try:
+                        found_drives = [item for item in os.listdir(shared_drives_folder) 
+                                       if os.path.isdir(os.path.join(shared_drives_folder, item))]
+                        
+                        # Filter out system files and hidden files
+                        drives.extend([drive for drive in found_drives 
+                                     if not drive.startswith('.') and drive not in ['System Volume Information']])
+                        
+                    except Exception as e:
+                        self.log.error(f"Windows: Error listing shared drives at {shared_drives_folder}: {e}")
+                        continue
+                    break  # Found a shared drives folder, no need to check other names
         
-        if not potential_bases:
-            self.log.warning("No potential Shared Drives folders found automatically.")
-            return []
-
-        self.log.debug(f"Listing shared drives from bases: {potential_bases}")
-        for sd_path in potential_bases:
-            try:
-                found = os.listdir(sd_path)
-                # Filter out non-directories and hidden items
-                current_drives = [d for d in found if os.path.isdir(os.path.join(sd_path, d)) and not d.startswith('.')]
-                if current_drives: # If this path yields drives, add them and potentially return
-                    drives.extend(d for d in current_drives if d not in drives) # Add new, unique drives
-            except Exception as e:
-                self.log.error(f"Error listing shared drives at {sd_path}: {e}")
-        
-        if drives:
-            self.log.info(f"Found shared drives: {drives}")
-        else:
-            self.log.warning("No shared drives found in any detected or provided paths.")
-        return list(set(drives)) # Return unique list of drives
+        return drives
     
     def create_mapping(self, source_path, target_path, mapping_name=None):
         """Create a Windows mapping from source to target using SUBST"""
@@ -456,12 +473,18 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
 
     def ensure_mount_point(self, desired_mount):
         """Ensure Google Drive is mounted at the desired drive letter"""
-        # Find actual Google Drive path
+        # Find actual Google Drive path using localized shared drive names
         current_mount = None
+        shared_drives_names = self._get_shared_drives_names()
+        
         for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            shared_drive_path = f"{drive_letter}:\\Shared drives"
-            if os.path.exists(shared_drive_path):
-                current_mount = f"{drive_letter}:"
+            for shared_drives_name in shared_drives_names:
+                shared_drive_path = f"{drive_letter}:\\{shared_drives_name}"
+                if os.path.exists(shared_drive_path):
+                    current_mount = f"{drive_letter}:"
+                    self.log.debug(f"Found Google Drive at {current_mount} with shared drives folder: {shared_drives_name}")
+                    break
+            if current_mount:
                 break
         
         if not current_mount:
@@ -709,3 +732,31 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             )
             self.set_installing(False)
             return False
+    
+    def debug_path_formation(self):
+        """Debug method to show all paths being checked for Google Drive and shared drives"""
+        super().debug_path_formation()
+        
+        # Get shared drive names
+        shared_names = self._get_shared_drives_names()
+        drive_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        existing_paths = []
+        
+        for drive_letter in drive_letters:
+            drive_root = f"{drive_letter}:\\"
+            if not os.path.exists(drive_root):
+                continue
+                
+            for shared_name in shared_names:
+                full_path = os.path.join(drive_root, shared_name)
+                if os.path.exists(full_path):
+                    existing_paths.append(full_path)
+        
+        if existing_paths:
+            self.log.info(f"Found {len(existing_paths)} existing shared drive folders")
+            for path in existing_paths[:5]:  # Limit to first 5
+                self.log.info(f"  ✓ {path}")
+            if len(existing_paths) > 5:
+                self.log.info(f"  ... and {len(existing_paths) - 5} more")
+        else:
+            self.log.info("No existing shared drive folders found")

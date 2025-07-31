@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import platform
 import shutil
@@ -108,7 +109,7 @@ class GDriveInstaller:
         
         lock_file = os.path.join(os.path.expanduser("~"), ".ayon_gdrive_installing")
         try:
-            with open(lock_file, "w") as f:
+            with open(lock_file, "w", encoding="utf-8") as f:
                 f.write(str(time.time()))
         except Exception:
             pass
@@ -181,7 +182,7 @@ class GDriveInstaller:
             
             # Write the AppleScript to a file
             script_path = os.path.join(tempfile.gettempdir(), "gdrive_install.scpt")
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(applescript)
                 
             # Run the AppleScript
@@ -211,7 +212,7 @@ rm -f "{script_path}"
 '''
             
             cleanup_path = os.path.join(tempfile.gettempdir(), "gdrive_cleanup.sh")
-            with open(cleanup_path, "w") as f:
+            with open(cleanup_path, "w", encoding="utf-8") as f:
                 f.write(cleanup_script)
                 
             os.chmod(cleanup_path, 0o755)

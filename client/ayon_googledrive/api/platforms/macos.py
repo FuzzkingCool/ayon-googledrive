@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import errno
 import json
 import os
@@ -305,72 +306,66 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         Returns:
             str: The full path to the relative path
         """
-        self.log.debug(f"Looking for path: {relative_path}")
-        
         # Clean up the path (handle Windows-style paths)
         original_path = relative_path
         if relative_path.startswith('\\'):
             relative_path = '/' + relative_path.lstrip('\\')
         relative_path = relative_path.replace('\\', '/')
         
-        self.log.debug(f"Path conversion: '{original_path}' -> '{relative_path}'")
-        
         # Get all potential Google Drive paths
         base_paths = self._get_all_gdrive_paths()
-        self.log.debug(f"Base paths to search: {base_paths}")
         
         # Get shared drives names from settings
         shared_drives_names = self._get_shared_drives_names()
-        self.log.debug(f"Shared drives names to check: {shared_drives_names}")
 
         # Check if this path contains any shared drive names
         matching_names = [name for name in shared_drives_names if name in relative_path]
         path_contains_shared_drive = len(matching_names) > 0
-        self.log.debug(f"Path contains shared drive name: {path_contains_shared_drive}")
-        if matching_names:
-            self.log.debug(f"Matching shared drive names: {matching_names}")
         
         if path_contains_shared_drive:
-            # Extract the drive name from the path
-            if '/' in relative_path:
-                drive_name = relative_path.split('/')[-1]
-            elif '\\' in original_path:
-                drive_name = original_path.split('\\')[-1]
-            else:
-                drive_name = relative_path
-                
-            self.log.debug(f"Extracted drive name: '{drive_name}' from path: '{relative_path}'")
+            # Parse the path to extract the shared drives folder name and the specific drive name
+            path_parts = [part for part in relative_path.split('/') if part.strip()]
             
-            # Look for the shared drives folder in each Google Drive path
-            for base_path in base_paths:
-                self.log.debug(f"Checking base path: {base_path}")
-                for shared_drives_name in shared_drives_names:
-                    shared_drives_folder = os.path.join(base_path, shared_drives_name)
-                    self.log.debug(f"Checking shared drives folder: {shared_drives_folder}")
+            # Find the index of the shared drives folder name
+            shared_drives_index = None
+            shared_drives_folder_name = None
+            
+            for i, part in enumerate(path_parts):
+                if part in shared_drives_names:
+                    shared_drives_index = i
+                    shared_drives_folder_name = part
+                    break
+            
+            if shared_drives_index is None:
+                self.log.error(f"macOS: Could not find shared drives folder name in path parts: {path_parts}")
+                return None
+            
+            # Extract the drive name (everything after the shared drives folder)
+            if shared_drives_index + 1 < len(path_parts):
+                drive_name = path_parts[shared_drives_index + 1]
+                
+                # Look for the shared drives folder in each Google Drive path
+                for base_path in base_paths:
+                    shared_drives_folder = os.path.join(base_path, shared_drives_folder_name)
                     
                     if os.path.exists(shared_drives_folder) and os.path.isdir(shared_drives_folder):
                         drive_path = os.path.join(shared_drives_folder, drive_name)
-                        self.log.debug(f"Checking for drive: {drive_path}")
                         if os.path.exists(drive_path) and os.path.isdir(drive_path):
-                            self.log.debug(f"Found shared drive at: {drive_path}")
                             return drive_path
-                        else:
-                            self.log.debug(f"Drive not found at: {drive_path}")
-                    else:
-                        self.log.debug(f"Shared drives folder not found: {shared_drives_folder}")
-            
-            self.log.error(f"Could not locate shared drive '{drive_name}' in any Google Drive mount")
-            return None
+                
+                self.log.error(f"macOS: Could not locate shared drive '{drive_name}' in any Google Drive mount")
+                return None
+            else:
+                self.log.error(f"macOS: No drive name found after shared drives folder in path: {relative_path}")
+                return None
         
         # Handle regular paths
         for base_path in base_paths:
             full_path = os.path.join(base_path, relative_path.lstrip('/'))
-            self.log.debug(f"Checking regular path: {full_path}")
             if os.path.exists(full_path):
-                self.log.debug(f"Found path at: {full_path}")
                 return full_path
         
-        self.log.error(f"Could not locate path '{relative_path}' in any Google Drive mount")
+        self.log.error(f"macOS: Could not locate path '{relative_path}' in any Google Drive mount")
         return None
     
     def list_shared_drives(self):
@@ -379,36 +374,28 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         # Get all potential Google Drive paths
         base_paths = self._get_all_gdrive_paths()
-        self.log.debug(f"Listing shared drives from base paths: {base_paths}")
 
         # Get shared drives names from settings
         shared_drives_names = self._get_shared_drives_names()
-        self.log.debug(f"Shared drives names to check: {shared_drives_names}")
-
-        # Check each base path for shared drives folder
+        
         for base_path in base_paths:
-            self.log.debug(f"Checking base path for shared drives: {base_path}")
             for shared_drives_name in shared_drives_names:
                 shared_drives_folder = os.path.join(base_path, shared_drives_name)
-                self.log.debug(f"Checking shared drives folder: {shared_drives_folder}")
                 
                 if os.path.exists(shared_drives_folder) and os.path.isdir(shared_drives_folder):
                     try:
-                        self.log.debug(f"Found shared drives folder: {shared_drives_folder}")
-                        found_drives = os.listdir(shared_drives_folder)
-                        self.log.debug(f"Found drives in {shared_drives_folder}: {found_drives}")
+                        found_drives = [item for item in os.listdir(shared_drives_folder) 
+                                       if os.path.isdir(os.path.join(shared_drives_folder, item))]
                         
-                        # Filter out hidden folders
-                        drives = [d for d in found_drives if not d.startswith('.') and os.path.isdir(os.path.join(shared_drives_folder, d))]
-                        self.log.debug(f"Filtered drives: {drives}")
+                        # Filter out system files and hidden files
+                        drives.extend([drive for drive in found_drives 
+                                     if not drive.startswith('.') and drive not in ['System Volume Information']])
                         
-                        if drives:
-                            self.log.debug(f"Returning drives from {shared_drives_folder}: {drives}")
-                            return drives
                     except Exception as e:
-                        self.log.error(f"Error listing shared drives at {shared_drives_folder}: {e}")
-
-        self.log.debug(f"No shared drives found. Final drives list: {drives}")
+                        self.log.error(f"macOS: Error listing shared drives at {shared_drives_folder}: {e}")
+                        continue
+                    break  # Found a shared drives folder, no need to check other names
+        
         return drives
 
     def _get_all_gdrive_paths(self):
@@ -417,27 +404,22 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         # Check CloudStorage for GoogleDrive folders using regex pattern
         cloud_storage = os.path.expanduser("~/Library/CloudStorage")
-        self.log.debug(f"Checking CloudStorage path: {cloud_storage}")
         
         if os.path.exists(cloud_storage) and os.path.isdir(cloud_storage):
             try:
                 import re
-                # Pattern to match GoogleDrive-*@domain.com folders
-                pattern = re.compile(r'^GoogleDrive-.*@.*\.com$')
+                # Pattern to match GoogleDrive-*@domain.* folders (any TLD and format)
+                pattern = re.compile(r'^GoogleDrive-.*@.*$')
                 
                 cloud_items = os.listdir(cloud_storage)
-                self.log.debug(f"CloudStorage contents: {cloud_items}")
                 
                 for item in cloud_items:
                     if pattern.match(item):
                         gdrive_path = os.path.join(cloud_storage, item)
                         if os.path.isdir(gdrive_path):
-                            self.log.debug(f"Found Google Drive folder: {gdrive_path}")
                             paths.append(gdrive_path)
             except Exception as e:
                 self.log.error(f"Error checking CloudStorage: {e}")
-        else:
-            self.log.debug(f"CloudStorage path does not exist: {cloud_storage}")
         
         # Check traditional mount points and common locations
         traditional_paths = [
@@ -450,10 +432,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         for path in traditional_paths:
             if os.path.exists(path) and os.path.isdir(path):
-                self.log.debug(f"Found Google Drive at traditional path: {path}")
                 paths.append(path)
-            else:
-                self.log.debug(f"Traditional path not found: {path}")
         
         # Check for mounted volumes using mount command
         try:
@@ -466,7 +445,6 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                         if len(parts) >= 3:
                             mount_point = parts[2]
                             if os.path.exists(mount_point) and os.path.isdir(mount_point):
-                                self.log.debug(f"Found Google Drive mount: {mount_point}")
                                 if mount_point not in paths:
                                     paths.append(mount_point)
         except Exception as e:
@@ -482,7 +460,6 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                         try:
                             target = os.readlink(item_path)
                             if os.path.exists(target) and os.path.isdir(target):
-                                self.log.debug(f"Found Google Drive symlink: {item_path} -> {target}")
                                 if target not in paths:
                                     paths.append(target)
                         except OSError:
@@ -490,7 +467,6 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         except Exception as e:
             self.log.debug(f"Error checking /Volumes symlinks: {e}")
                 
-        self.log.debug(f"Total Google Drive paths found: {paths}")
         return paths
 
     def find_googledrive_mount(self):
@@ -618,7 +594,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         script_path = os.path.join(tempfile.gettempdir(), "ayon_gdrive_ensure_mount.scpt")
         try:
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script_content)
             
             self.log.debug(f"Executing AppleScript for ensure_mount_point: {script_path}")
@@ -679,7 +655,11 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     normalized_source_path = os.path.normpath(os.path.abspath(source_path))
                     
                     if current_link_target == normalized_source_path:
-                        self.log.info(f"Mapping '{mapping_name}' already exists and points correctly: {target_path} -> {source_path}")
+                        self.log.debug(f"Mapping '{mapping_name}' already exists and points correctly: {target_path} -> {source_path}")
+                        self._record_mapping(mapping_name, source_path, target_path)
+                        return True
+                    elif self._is_legitimate_gdrive_symlink(target_path, normalized_source_path):
+                        self.log.info(f"Mapping '{mapping_name}' exists and points to the same Google Drive content: {target_path} -> {current_link_target}")
                         self._record_mapping(mapping_name, source_path, target_path)
                         return True
                     else:
@@ -716,7 +696,11 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                     normalized_source_path = os.path.normpath(os.path.abspath(source_path))
 
                     if current_link_target == normalized_source_path:
-                        self.log.info(f"Symlink for '{mapping_name}' at {target_path} already exists and points correctly.")
+                        self.log.debug(f"Symlink for '{mapping_name}' at {target_path} already exists and points correctly.")
+                        self._record_mapping(mapping_name, source_path, target_path)
+                        return True
+                    elif self._is_legitimate_gdrive_symlink(target_path, normalized_source_path):
+                        self.log.info(f"Symlink for '{mapping_name}' at {target_path} exists and points to the same Google Drive content: {current_link_target}")
                         self._record_mapping(mapping_name, source_path, target_path)
                         return True
                     else:
@@ -778,7 +762,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                 '''
                 script_path = os.path.join(tempfile.gettempdir(), f"ayon_gdrive_create_mapping_{mapping_name.replace(' ', '_')}.scpt")
                 try:
-                    with open(script_path, "w") as f:
+                    with open(script_path, "w", encoding="utf-8") as f:
                         f.write(script_content)
                     
                     self.log.debug(f"Executing AppleScript for create_mapping '{mapping_name}': {script_path}")
@@ -823,7 +807,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         mappings = {}
         if os.path.exists(mappings_file):
             try:
-                with open(mappings_file, "r") as f:
+                with open(mappings_file, "r", encoding="utf-8") as f:
                     mappings = json.load(f)
             except (IOError, json.JSONDecodeError) as e:
                 self.log.warning(f"Could not read existing mappings file {mappings_file}: {e}. It will be overwritten.")
@@ -831,8 +815,8 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         mappings[name] = {"source_path": source, "target_path": target, "timestamp": time.time()}
         
         try:
-            with open(mappings_file, "w") as f:
-                json.dump(mappings, f, indent=4)
+            with open(mappings_file, "w", encoding="utf-8") as f:
+                json.dump(mappings, f, indent=4, ensure_ascii=False)
             self.log.debug(f"Recorded mapping '{name}' to {mappings_file}")
         except IOError as e:
             self.log.error(f"Failed to write to mappings file {mappings_file}: {e}")
@@ -843,7 +827,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         if not os.path.exists(mappings_file):
             return {}
         try:
-            with open(mappings_file, "r") as f:
+            with open(mappings_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (IOError, json.JSONDecodeError) as e:
             self.log.error(f"Failed to read or parse mappings file {mappings_file}: {e}")
@@ -887,7 +871,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             display dialog "{escaped_message}" with title "AYON Google Drive - Path Conflict" buttons {{"OK"}} default button "OK" with icon caution
             '''
             script_path = os.path.join(tempfile.gettempdir(), f"ayon_gdrive_path_conflict_{mapping_name.replace(' ', '_')}.scpt")
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script_content)
             
             subprocess.run(["osascript", script_path], capture_output=True)
@@ -986,3 +970,92 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             # For now, we leave it as is, so on next run it might try again or show which ones failed.
 
         return success_all
+
+    def _paths_point_to_same_content(self, path1, path2):
+        """Check if two paths point to the same content (handles symlinks and different paths to same content)"""
+        try:
+            # Normalize both paths
+            norm_path1 = os.path.normpath(os.path.abspath(path1))
+            norm_path2 = os.path.normpath(os.path.abspath(path2))
+            
+            # If they're the same path, they point to the same content
+            if norm_path1 == norm_path2:
+                return True
+            
+            # Check if both paths exist
+            if not os.path.exists(norm_path1) or not os.path.exists(norm_path2):
+                return False
+            
+            # Use os.path.samefile to check if they point to the same inode/content
+            return os.path.samefile(norm_path1, norm_path2)
+        except (OSError, ValueError):
+            return False
+
+    def _is_legitimate_gdrive_symlink(self, symlink_path, expected_source):
+        """Check if an existing symlink is a legitimate Google Drive symlink pointing to the same content"""
+        try:
+            if not os.path.islink(symlink_path):
+                return False
+                
+            current_target = os.readlink(symlink_path)
+            if not os.path.isabs(current_target):
+                current_target = os.path.normpath(os.path.join(os.path.dirname(symlink_path), current_target))
+            else:
+                current_target = os.path.normpath(current_target)
+            
+            # Check if the symlink points to the same content as our expected source
+            if self._paths_point_to_same_content(current_target, expected_source):
+                return True
+            
+            # Additional check: if both paths are within Google Drive locations, they might be equivalent
+            gdrive_paths = self._get_all_gdrive_paths()
+            current_in_gdrive = any(current_target.startswith(gp) for gp in gdrive_paths)
+            expected_in_gdrive = any(expected_source.startswith(gp) for gp in gdrive_paths)
+            
+            if current_in_gdrive and expected_in_gdrive:
+                # Both are Google Drive paths, check if they have the same relative structure
+                for gdrive_path in gdrive_paths:
+                    if current_target.startswith(gdrive_path) and expected_source.startswith(gdrive_path):
+                        current_rel = os.path.relpath(current_target, gdrive_path)
+                        expected_rel = os.path.relpath(expected_source, gdrive_path)
+                        if current_rel == expected_rel:
+                            return True
+            
+            return False
+        except (OSError, ValueError):
+            return False
+    
+    def debug_path_formation(self):
+        """Debug method to show all paths being checked for Google Drive and shared drives"""
+        super().debug_path_formation()
+        
+        # Get all possible Google Drive paths
+        base_paths = self._get_all_gdrive_paths()
+        if base_paths:
+            self.log.info(f"Found {len(base_paths)} Google Drive base paths")
+            # Only log the first few paths to avoid spam
+            for i, path in enumerate(base_paths[:3], 1):
+                self.log.info(f"  {i}. {path}")
+            if len(base_paths) > 3:
+                self.log.info(f"  ... and {len(base_paths) - 3} more")
+        else:
+            self.log.warning("No Google Drive base paths found")
+        
+        # Get shared drive names and show only existing ones
+        shared_names = self._get_shared_drives_names()
+        existing_paths = []
+        
+        for base_path in base_paths:
+            for shared_name in shared_names:
+                full_path = os.path.join(base_path, shared_name)
+                if os.path.exists(full_path):
+                    existing_paths.append(full_path)
+        
+        if existing_paths:
+            self.log.info(f"Found {len(existing_paths)} existing shared drive folders")
+            for path in existing_paths[:5]:  # Limit to first 5
+                self.log.info(f"  ✓ {path}")
+            if len(existing_paths) > 5:
+                self.log.info(f"  ... and {len(existing_paths) - 5} more")
+        else:
+            self.log.info("No existing shared drive folders found")

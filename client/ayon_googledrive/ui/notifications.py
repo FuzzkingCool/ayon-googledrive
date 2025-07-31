@@ -63,7 +63,7 @@ def show_notification(
     if icon_path is None:
         icon_path = os.path.normpath(f"{ADDON_ROOT}/resources/AYON_icon.png").replace("\\" , "/")
 
-    log.debug(f"Showing notification: {title} {message} {level} {delay_seconds} {unique_id} {icon_path}")
+
 
     # If toastnotify is available, use it and do nothing else
     if _toastnotify_available:
@@ -93,16 +93,13 @@ def _send_notification(title, message, level, icon=None):
         app = QtWidgets.QApplication.instance()
         if app and hasattr(app, "trayIcon"):
             _tray_icon = app.trayIcon
-            log.debug("Found tray icon via app.trayIcon")
             _tray_icon.showMessage(title, message, icon=icon)
             return
         if _tray_icon is not None:
             try:
-                log.debug(f"Showing notification using cached tray icon: {title}")
                 _tray_icon.showMessage(title, message, icon=icon)
                 return
             except Exception as e:
-                log.debug(f"Cached tray icon failed: {e}")
                 _tray_icon = None
         app = QtWidgets.QApplication.instance()
         if not app:
@@ -111,7 +108,6 @@ def _send_notification(title, message, level, icon=None):
         if hasattr(app, "tray_icon") and app.tray_icon:
             _tray_icon = app.tray_icon
             _tray_icon.showMessage(title, message, icon=icon)
-            log.debug(f"Notification sent via app.tray_icon: {title}")
             return
         if hasattr(QtWidgets.QApplication, "_gdrive_menu"):
             menu = QtWidgets.QApplication._gdrive_menu
@@ -126,7 +122,6 @@ def _send_notification(title, message, level, icon=None):
                     if tray:
                         _tray_icon = tray
                         tray.showMessage(title, message, icon=icon)
-                        log.debug(f"Notification sent via menu parent: {title}")
                         return
         for widget in app.topLevelWidgets():
             if hasattr(widget, "systemTrayIcon"):
@@ -137,13 +132,11 @@ def _send_notification(title, message, level, icon=None):
                 if tray and hasattr(tray, "showMessage"):
                     _tray_icon = tray
                     tray.showMessage(title, message, icon=icon)
-                    log.debug(f"Notification sent via found tray icon: {title}")
                     return
         for widget in app.allWidgets():
             if isinstance(widget, QtWidgets.QSystemTrayIcon):
                 _tray_icon = widget
                 widget.showMessage(title, message, icon=icon)
-                log.debug(f"Notification sent via QSystemTrayIcon: {title}")
                 return
         log.warning(f"Could not find system tray icon, notification not shown: {title}")
     except Exception as e:
