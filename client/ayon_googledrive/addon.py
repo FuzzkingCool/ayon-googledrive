@@ -148,12 +148,31 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         # Update menu contents now that tray is ready
         QtCore.QTimer.singleShot(2000, self._update_menu)
         
+        # Set up periodic status updates to ensure menu is always current
+        self._status_update_timer = QtCore.QTimer()
+        self._status_update_timer.timeout.connect(self._periodic_status_update)
+        self._status_update_timer.start(30000)  # Update every 30 seconds
+        
         # Start background monitoring of Google Drive
         self._start_monitoring()
+    
+    def _periodic_status_update(self):
+        """Periodically update the menu status to ensure it's always current"""
+        try:
+            if hasattr(self, '_menu') and self._menu:
+                # Update the submenu status without opening the menu
+                self._update_submenu_status(self._menu)
+        except Exception as e:
+            log.debug(f"Error in periodic status update: {e}")
 
     def tray_exit(self):
         """Cleanup when tray is closing."""
         log.debug("Cleaning up Google Drive addon")
+        
+        # Stop status update timer if running
+        if hasattr(self, '_status_update_timer'):
+            self._status_update_timer.stop()
+            self._status_update_timer = None
         
         # Stop monitoring thread if running
         self._stop_monitoring()
@@ -210,20 +229,83 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         """Update just the submenu title and icon when parent tray opens"""
         log.debug("Updating submenu status on parent tray aboutToShow")
         
-        # Use cached status from monitoring thread or do quick check
+        # Perform a quick, non-blocking status check instead of relying on cache
         try:
-            # Quick non-blocking status update - just update the visual immediately
-            # The full check will happen when user actually opens our submenu
-            if hasattr(self, '_last_known_status'):
-                status_text, status_icon = self._last_known_status
-                self._menu_builder._set_menu_status(menu, status_text, status_icon)
+            # Quick status check - prioritize speed over completeness
+            # This ensures the menu always shows current status when opened
+            
+            # Check installation first (fastest check)
+            if not self._gdrive_manager.is_googledrive_installed():
+                self._menu_builder._set_menu_status(menu, "Google Drive: Not Installed", "error")
+                # Force full menu update to show install option
+                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
+                return
+                
+            # Check if running (relatively fast check)
+            if not self._gdrive_manager.is_googledrive_running():
+                self._menu_builder._set_menu_status(menu, "Google Drive: Not Running", "warning")
+                # Force full menu update to show start option
+                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
+                return
+                
+            # Check if user is logged in (fast check)
+            if not self._gdrive_manager.is_user_logged_in():
+                self._menu_builder._set_menu_status(menu, "Google Drive: Login Required", "warning")
+                # Force full menu update to show login message
+                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
+                return
+            
+            # If we get here, Google Drive is installed, running, and logged in
+            # Now do a quick check of mappings (this is the slowest part but still fast)
+            has_all_mappings = self._check_mappings_quick()
+            
+            if has_all_mappings:
+                self._menu_builder._set_menu_status(menu, "Google Drive: Connected", "ok")
+                # Only update full menu if we haven't done so recently
+                if not hasattr(self, '_last_full_update') or time.time() - self._last_full_update > 60:
+                    QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
+                    self._last_full_update = time.time()
             else:
-                # Fallback to a default status if no cache available
-                self._menu_builder._set_menu_status(menu, "Google Drive: Checking...", "warning")
+                self._menu_builder._set_menu_status(menu, "Google Drive: Connection Issue", "warning")
+                # Force full menu update to show mapping issues
+                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
                 
         except Exception as e:
             log.debug(f"Error updating submenu status: {e}")
             self._menu_builder._set_menu_status(menu, "Google Drive: Error", "error")
+            # Force full menu update to show error details
+            QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
+    
+    def _check_mappings_quick(self):
+        """Quick check of mappings without full validation"""
+        try:
+            mappings = self.settings.get("mappings", [])
+            if not mappings:
+                return True  # No mappings to check
+                
+            # Get platform-specific targets
+            os_type = platform.system()
+            
+            # Quick check - just verify paths exist
+            for mapping in mappings:
+                if os_type == "Windows":
+                    target = mapping.get("windows_target", "")
+                elif os_type == "Darwin":
+                    target = mapping.get("macos_target", "")
+                elif os_type == "Linux":
+                    target = mapping.get("linux_target", "")
+                else:
+                    target = ""
+                    
+                # Simple existence check
+                if target and not os.path.exists(target):
+                    return False
+                    
+            return True
+            
+        except Exception as e:
+            log.debug(f"Error in quick mappings check: {e}")
+            return False
 
     def _update_menu(self):
         """Update menu contents if menu exists"""
