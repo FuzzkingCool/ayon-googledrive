@@ -19,7 +19,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         Args:
             settings (dict, optional): Settings dictionary from GDriveManager.
         """
-        super(GDriveMacOSPlatform, self).__init__()
+        super(GDriveMacOSPlatform, self).__init__(settings)
         self.settings = settings
         self._googledrive_path = None
         self.os_type = "Darwin" # Add os_type for base class to use
@@ -318,16 +318,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         
         # Handle special case for Shared drives
         # Define a list of known "Shared Drives" folder names in different languages
-        shared_drives_names = [
-            "Shared drives",  # English
-            "Shared Drives",  # English (alternative capitalization)
-            "Drive partages",  # French
-            "Compartidos conmigo",  # Spanish
-            "Geteilte Ablagen",  # German
-            "Condivisi con me",  # Italian
-            "Gedeelde drives",  # Dutch
-            # Add more translations as needed
-        ]
+        shared_drives_names = self._get_shared_drives_names()
 
         if any(name in relative_path for name in shared_drives_names):
             drive_name = relative_path.split('/')[-1] if '/' in relative_path else relative_path.split('\\')[-1]
@@ -401,7 +392,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
 
         # Check each base path for shared drives folder
         for base_path in base_paths:
-            for name in self.shared_drives_names:
+            for name in self._get_shared_drives_names():
                 shared_drives_folder_path = os.path.join(base_path, name)
                 if os.path.exists(shared_drives_folder_path) and os.path.isdir(shared_drives_folder_path):
                     try:

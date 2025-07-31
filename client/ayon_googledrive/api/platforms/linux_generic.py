@@ -15,7 +15,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
         Args:
             settings (dict, optional): Settings dictionary from GDriveManager.
         """
-        super(GDriveLinuxPlatform, self).__init__()
+        super(GDriveLinuxPlatform, self).__init__(settings)
         self.settings = settings  # Store the settings passed from GDriveManager
  
         # Detect desktop environment for better UI integration
@@ -419,20 +419,26 @@ Comment=Mount Google Drive automatically
         
         self.log.debug(f"Looking for relative path '{clean_path}' in {mount_point}")
         
+        # Get shared drive names from settings
+        shared_drives_names = self._get_shared_drives_names()
+        
         # Try various path patterns
         path_patterns = [
             # Direct path
             os.path.join(mount_point, clean_path),
-            
-            # With "Shared drives" prefix
-            os.path.join(mount_point, "Shared drives", clean_path.replace("Shared drives/", "")),
-            
-            # With "Team Drives" as alternative name
-            os.path.join(mount_point, "Team Drives", clean_path.replace("Shared drives/", "")),
-            
-            # Try stripping My Drive prefix if present
-            os.path.join(mount_point, clean_path.replace("My Drive/", ""))
         ]
+        
+        # Add patterns for each shared drive name variant
+        for sd_name in shared_drives_names:
+            # With shared drive name prefix
+            path_patterns.append(os.path.join(mount_point, sd_name, clean_path.replace(f"{sd_name}/", "")))
+            
+            # Handle case where clean_path starts with "Shared drives/" but we need to use the localized name
+            if clean_path.startswith("Shared drives/"):
+                path_patterns.append(os.path.join(mount_point, sd_name, clean_path.replace("Shared drives/", "")))
+        
+        # Try stripping My Drive prefix if present
+        path_patterns.append(os.path.join(mount_point, clean_path.replace("My Drive/", "")))
         
         for path in path_patterns:
             if os.path.exists(path):
@@ -446,11 +452,12 @@ Comment=Mount Google Drive automatically
             for item in contents:
                 self.log.debug(f"- {item}")
             
-            # Check for Shared drives folder
-            shared_drives_path = os.path.join(mount_point, "Shared drives")
-            if os.path.exists(shared_drives_path):
-                shared_drives = os.listdir(shared_drives_path)
-                self.log.debug(f"Shared drives contents: {shared_drives}")
+            # Check for Shared drives folder using settings
+            for sd_name in shared_drives_names:
+                shared_drives_path = os.path.join(mount_point, sd_name)
+                if os.path.exists(shared_drives_path):
+                    shared_drives = os.listdir(shared_drives_path)
+                    self.log.debug(f"Shared drives contents ({sd_name}): {shared_drives}")
         except Exception as e:
             self.log.warning(f"Error listing mount contents: {e}")
         
@@ -467,22 +474,21 @@ Comment=Mount Google Drive automatically
             self.log.warning("Could not find Google Drive mount point")
             return drives
         
-        # Check for "Shared drives" or "Team Drives" folder
-        shared_drives_paths = [
-            os.path.join(mount_point, "Shared drives"),
-            os.path.join(mount_point, "Team Drives")
-        ]
+        # Get shared drive names from settings
+        shared_drives_names = self._get_shared_drives_names()
         
-        for path in shared_drives_paths:
-            if os.path.exists(path) and os.path.isdir(path):
+        # Check for each shared drive name variant
+        for sd_name in shared_drives_names:
+            shared_drives_path = os.path.join(mount_point, sd_name)
+            if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
                 try:
-                    items = os.listdir(path)
-                    drives = [d for d in items if os.path.isdir(os.path.join(path, d))]
+                    items = os.listdir(shared_drives_path)
+                    drives = [d for d in items if os.path.isdir(os.path.join(shared_drives_path, d))]
                     if drives:
-                        self.log.debug(f"Found shared drives at {path}: {drives}")
+                        self.log.debug(f"Found shared drives at {shared_drives_path}: {drives}")
                         return drives
                 except Exception as e:
-                    self.log.error(f"Error listing shared drives at {path}: {e}")
+                    self.log.error(f"Error listing shared drives at {shared_drives_path}: {e}")
         
         self.log.warning("No shared drives found")
         return drives

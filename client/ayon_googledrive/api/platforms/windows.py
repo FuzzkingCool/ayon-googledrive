@@ -21,7 +21,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         Args:
             settings (dict, optional): Settings dictionary from GDriveManager.
         """
-        super(GDriveWindowsPlatform, self).__init__()
+        super(GDriveWindowsPlatform, self).__init__(settings)
         self.settings = settings or {}
         self._installing_lock = threading.Lock()
         self._installing = False
@@ -176,10 +176,11 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             clean_path = clean_path.lstrip("\\/")
 
         # If a user override for the Shared Drives path exists, check it first
-        if any(name in clean_path for name in self.shared_drives_names):
+        shared_drives_names = self._get_shared_drives_names()
+        if any(name in clean_path for name in shared_drives_names):
             drive_name_part = clean_path.split('Shared drives\\', 1)[-1].split('Shared Drives\\',1)[-1] # Get the part after "Shared drives\"
             # Further split by any known shared drive name to get the actual drive name
-            for sd_name_variant in self.shared_drives_names:
+            for sd_name_variant in shared_drives_names:
                 if sd_name_variant in drive_name_part:
                      #This logic is a bit fragile, assumes drive_name_part starts with sd_name_variant + separator
                     #Adjust if specific drive names can contain parts of sd_name_variant
@@ -206,7 +207,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 continue
 
             # Check for any of the internationalized "Shared Drives" names
-            for sd_name in self.shared_drives_names:
+            for sd_name in shared_drives_names:
                 potential_shared_drives_folder = os.path.join(drive_root, sd_name)
                 if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
                     self.log.debug(f"Found potential Shared Drives folder at {potential_shared_drives_folder}")
@@ -219,7 +220,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                          if drive_root not in found_drive_bases: # avoid duplicates if sd_name was empty
                             found_drive_bases.append(drive_root)
 
-        if not found_drive_bases and any(name in clean_path for name in self.shared_drives_names):
+        if not found_drive_bases and any(name in clean_path for name in shared_drives_names):
             # If we expected a shared drive path but found no "Shared Drives" folders
             self.log.warning("Could not find any 'Shared Drives' folder. Prompting user.")
             user_selected_path = self._prompt_user_for_shared_drives_path()
@@ -259,12 +260,12 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
 
         for base_path_to_search in unique_bases:
             # Determine if base_path_to_search is a shared drives folder (e.g., I:\Shared drives) or a root (e.g., I:\)
-            is_shared_drives_folder_itself = any(base_path_to_search.rstrip('\\/').endswith(sep + sd_name) for sep in [os.sep, os.altsep] if sep for sd_name in self.shared_drives_names)
+            is_shared_drives_folder_itself = any(base_path_to_search.rstrip('\\/').endswith(sep + sd_name) for sep in [os.sep, os.altsep] if sep for sd_name in shared_drives_names)
 
-            if any(name in clean_path for name in self.shared_drives_names):
+            if any(name in clean_path for name in shared_drives_names):
                 actual_item_name = clean_path
                 # Strip all shared drive name variants and separators from the start
-                for sd_name_variant in self.shared_drives_names:
+                for sd_name_variant in shared_drives_names:
                     for sep in ['\\', '/']:
                         prefix_to_check = sd_name_variant + sep
                         if actual_item_name.startswith(prefix_to_check):
@@ -277,7 +278,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                         continue
                     break
                 # Remove any remaining shared drive name prefix (defensive)
-                for sd_name_variant in self.shared_drives_names:
+                for sd_name_variant in shared_drives_names:
                     for sep in ['\\', '/']:
                         prefix_to_check = sd_name_variant + sep
                         if actual_item_name.startswith(prefix_to_check):
@@ -292,7 +293,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                         return path_variant
                 else:
                     # base_path_to_search is a root, append shared drive name and then item name
-                    for sd_name in self.shared_drives_names:
+                    for sd_name in shared_drives_names:
                         # Only append if actual_item_name is not empty
                         path_variant = os.path.join(base_path_to_search, sd_name, actual_item_name)
                         self.log.debug(f"Checking path variant (root + lang + item): {path_variant}")
@@ -321,11 +322,12 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             potential_bases.append(self._shared_drives_path_override)
 
         # Find Google Drive mount points
+        shared_drives_names = self._get_shared_drives_names()
         for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
             drive_root = f"{drive_letter}:\\"
             if not os.path.exists(drive_root):
                 continue
-            for sd_name in self.shared_drives_names:
+            for sd_name in shared_drives_names:
                 shared_drive_folder = os.path.join(drive_root, sd_name)
                 if os.path.exists(shared_drive_folder) and os.path.isdir(shared_drive_folder):
                     if shared_drive_folder not in potential_bases:

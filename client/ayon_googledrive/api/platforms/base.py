@@ -3,22 +3,67 @@ from qtpy import QtWidgets
 import os
 
 class GDrivePlatformBase:
-    shared_drives_names = [
+    # Default shared drive names (fallback if settings are not available)
+    default_shared_drives_names = [
         "Shared drives",  # English
         "Shared Drives",  # English (alternative capitalization)
-        "Drive partages",  # French
-        "Compartidos conmigo",  # Spanish
+        "Drive partagés",  # French
+        "Drive partagé",  # French (singular)
         "Geteilte Ablagen",  # German
-        "Condivisi con me",  # Italian
+        "Drive condivisi",  # Italian
+        "Unidades compartidas",  # Spanish (es and es-419)
+        "Drives compartilhados",  # Portuguese (Brazil)
+        "共享云端硬盘",  # Chinese (Simplified)
+        "共用雲端硬碟",  # Chinese (Traditional)
+        "共有ドライブ",  # Japanese
+        "공유 드라이브",  # Korean
         "Gedeelde drives",  # Dutch
-        # Add more translations as needed
+        "Общие диски",  # Russian
+        "Dyski udostępnione",  # Polish
+        "Delade enheter",  # Swedish
+        "Delte drev",  # Danish
+        "Delte enheter",  # Norwegian
     ]
 
     """Base class for platform-specific Google Drive operations"""
     
-    def __init__(self):
+    def __init__(self, settings=None):
         self.log = log
         self._shared_drives_path_override = None
+        self.settings = settings
+    
+    def _get_shared_drives_names(self):
+        """Get shared drive names from settings or use defaults"""
+        try:
+            if self.settings and "localization" in self.settings:
+                localization = self.settings["localization"]
+                if "shared_drive_names" in localization:
+                    shared_drive_names = localization["shared_drive_names"]
+                    if isinstance(shared_drive_names, list):
+                        # Extract just the names from the settings structure
+                        names = []
+                        for item in shared_drive_names:
+                            if isinstance(item, dict) and "shared_drives_names" in item:
+                                # Handle the new structure where shared_drives_names is a list
+                                shared_names = item["shared_drives_names"]
+                                if isinstance(shared_names, list):
+                                    names.extend(shared_names)
+                                elif isinstance(shared_names, str):
+                                    names.append(shared_names)
+                            elif isinstance(item, dict) and "shared_drives_name" in item:
+                                # Handle legacy structure for backward compatibility
+                                names.append(item["shared_drives_name"])
+                            elif isinstance(item, str):
+                                names.append(item)
+                        if names:
+                            self.log.debug(f"Using shared drive names from settings: {names}")
+                            return names
+        except Exception as e:
+            self.log.warning(f"Error getting shared drive names from settings: {e}")
+        
+        # Fallback to default names
+        self.log.debug(f"Using default shared drive names: {self.default_shared_drives_names}")
+        return self.default_shared_drives_names
     
     def is_googledrive_installed(self):
         """Check if Google Drive is installed on this platform"""

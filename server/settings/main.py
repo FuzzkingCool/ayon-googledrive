@@ -16,6 +16,28 @@ DEFAULT_GDRIVE_SETTINGS = {
         "macos": "/Volumes/GoogleDrive",
         "linux": "/mnt/google_drive"
     },
+    "localization": {
+        "shared_drive_names": [
+            {"name": "English", "locale_code": "en", "shared_drives_names": ["Shared drives", "Shared Drives"]},
+            {"name": "French", "locale_code": "fr", "shared_drives_names": ["Drive partagés", "Drive partagé"]},
+            {"name": "German", "locale_code": "de", "shared_drives_names": ["Geteilte Ablagen"]},
+            {"name": "Italian", "locale_code": "it", "shared_drives_names": ["Drive condivisi"]},
+            {"name": "Spanish (LatAm/ES)", "locale_code": "es", "shared_drives_names": ["Unidades compartidas"]},
+            {"name": "Spanish (Latin America)", "locale_code": "es-419", "shared_drives_names": ["Unidades compartidas"]},
+            {"name": "Portuguese (Brazil)", "locale_code": "pt-BR", "shared_drives_names": ["Drives compartilhados"]},
+            {"name": "Chinese (Simplified)", "locale_code": "zh-CN", "shared_drives_names": ["共享云端硬盘"]},
+            {"name": "Chinese (Traditional)", "locale_code": "zh-TW", "shared_drives_names": ["共用雲端硬碟"]},
+            {"name": "Japanese", "locale_code": "ja", "shared_drives_names": ["共有ドライブ"]},
+            {"name": "Korean", "locale_code": "ko", "shared_drives_names": ["공유 드라이브"]},
+            {"name": "Dutch", "locale_code": "nl", "shared_drives_names": ["Gedeelde drives"]},
+            {"name": "Russian", "locale_code": "ru", "shared_drives_names": ["Общие диски"]},
+            {"name": "Polish", "locale_code": "pl", "shared_drives_names": ["Dyski udostępnione"]},
+            {"name": "Swedish", "locale_code": "sv", "shared_drives_names": ["Delade enheter"]},
+            {"name": "Danish", "locale_code": "da", "shared_drives_names": ["Delte drev"]},
+            {"name": "Norwegian", "locale_code": "no", "shared_drives_names": ["Delte enheter"]},
+
+        ]
+    },
     "mappings": [
         {
             "name": "Projects",
@@ -42,6 +64,64 @@ DEFAULT_GDRIVE_SETTINGS = {
 }
 
 # Define nested configuration models for better structure
+class SharedDriveName(BaseSettingsModel):
+    """Single shared drive name configuration."""
+    name: str = SettingsField(
+        "",
+        title="Name",
+        description="Display name for this language entry"
+    )
+    
+    locale_code: str = SettingsField(
+        "",
+        title="Locale Code",
+        description="Language code (e.g. 'en', 'fr', 'es', 'de') that Drive for Desktop reads from the OS"
+    )
+    
+    shared_drives_names: List[str] = SettingsField(
+        default_factory=list,
+        title="Shared Drives Names",
+        description="The actual folder names as they appear in Google Drive (can be multiple variations)"
+    )
+
+    def __str__(self):
+        """Return the name for display in AYON settings UI."""
+        return self.name if self.name else "Unnamed Language"
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Set the name field to the language value if not provided
+        if not self.name and self.locale_code:
+            self.name = self.locale_code
+
+
+class LocalizationSettings(BaseSettingsModel):
+    """Localization settings for Google Drive integration."""
+    shared_drive_names: List[SharedDriveName] = SettingsField(
+        default_factory=lambda: [
+            SharedDriveName(name="English", locale_code="en", shared_drives_names=["Shared drives", "Shared Drives"]),
+            SharedDriveName(name="French", locale_code="fr", shared_drives_names=["Drive partagés", "Drive partagé"]),
+            SharedDriveName(name="German", locale_code="de", shared_drives_names=["Geteilte Ablagen"]),
+            SharedDriveName(name="Italian", locale_code="it", shared_drives_names=["Drive condivisi"]),
+            SharedDriveName(name="Spanish (LatAm/ES)", locale_code="es", shared_drives_names=["Unidades compartidas"]),
+            SharedDriveName(name="Spanish (Latin America)", locale_code="es-419", shared_drives_names=["Unidades compartidas"]),
+            SharedDriveName(name="Portuguese (Brazil)", locale_code="pt-BR", shared_drives_names=["Drives compartilhados"]),
+            SharedDriveName(name="Chinese (Simplified)", locale_code="zh-CN", shared_drives_names=["共享云端硬盘"]),
+            SharedDriveName(name="Chinese (Traditional)", locale_code="zh-TW", shared_drives_names=["共用雲端硬碟"]),
+            SharedDriveName(name="Japanese", locale_code="ja", shared_drives_names=["共有ドライブ"]),
+            SharedDriveName(name="Korean", locale_code="ko", shared_drives_names=["공유 드라이브"]),
+            SharedDriveName(name="Dutch", locale_code="nl", shared_drives_names=["Gedeelde drives"]),
+            SharedDriveName(name="Russian", locale_code="ru", shared_drives_names=["Общие диски"]),
+            SharedDriveName(name="Polish", locale_code="pl", shared_drives_names=["Dyski udostępnione"]),
+            SharedDriveName(name="Swedish", locale_code="sv", shared_drives_names=["Delade enheter"]),
+            SharedDriveName(name="Danish", locale_code="da", shared_drives_names=["Delte drev"]),
+            SharedDriveName(name="Norwegian", locale_code="no", shared_drives_names=["Delte enheter"])
+        ],
+        title="Shared Drive Names",
+        description="Names of shared drive folders in different languages"
+    )
+
+
 class GDriveExecutablePaths(BaseSettingsModel):
     """Google Drive paths for different platforms."""
     windows: str = SettingsField(
@@ -170,6 +250,12 @@ class GDriveSettings(BaseSettingsModel):
         True,
         title="Keep Symlinks on Exit (MacOS)",
         description="Keep symlinks on exit (MacOS only)"
+    )
+    
+    localization: LocalizationSettings = SettingsField(
+        default_factory=LocalizationSettings,
+        title="Localization",
+        description="Localization settings for Google Drive integration"
     )
     
     googledrive_path: GDriveExecutablePaths = SettingsField(
