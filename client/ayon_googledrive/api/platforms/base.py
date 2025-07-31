@@ -1,5 +1,4 @@
 from ayon_googledrive.logger import log
-from qtpy import QtWidgets
 import os
 
 class GDrivePlatformBase:
@@ -29,7 +28,6 @@ class GDrivePlatformBase:
     
     def __init__(self, settings=None):
         self.log = log
-        self._shared_drives_path_override = None
         self.settings = settings
     
     def _get_shared_drives_names(self):
@@ -44,6 +42,7 @@ class GDrivePlatformBase:
                     if "shared_drive_names" in localization:
                         shared_drive_names = localization["shared_drive_names"]
                         self.log.debug(f"Shared drive names from settings: {shared_drive_names}")
+                        self.log.debug(f"Type of shared_drive_names: {type(shared_drive_names)}")
                         if isinstance(shared_drive_names, list):
                             # Extract just the names from the settings structure
                             names = []
@@ -63,6 +62,7 @@ class GDrivePlatformBase:
                                     names.append(item)
                             if names:
                                 self.log.debug(f"Using shared drive names from settings: {names}")
+                                self.log.debug(f"Number of shared drive names: {len(names)}")
                                 return names
                             else:
                                 self.log.warning("No shared drive names extracted from settings")
@@ -141,35 +141,3 @@ class GDrivePlatformBase:
     def show_admin_instructions(self, source_path, target_path):
         """Show instructions for operations requiring admin privileges"""
         raise NotImplementedError("Subclasses must implement this method")
-
-    def _prompt_user_for_shared_drives_path(self):
-        """Prompt the user to select their 'Shared Drives' folder."""
-        app = QtWidgets.QApplication.instance()
-        if not app:
-            app = QtWidgets.QApplication([])
-
-        dialog = QtWidgets.QFileDialog()
-        dialog.setFileMode(QtWidgets.QFileDialog.Directory)
-        dialog.setOption(QtWidgets.QFileDialog.ShowDirsOnly, True)
-        dialog.setWindowTitle("Select Your Google Shared Drives Folder")
-        dialog.setLabelText(QtWidgets.QFileDialog.Accept, "Select Folder")
-        
-        start_path = "~"
-        if hasattr(self, 'os_type'): # Check if os_type is available for platform-specific paths
-            if self.os_type == "Darwin":
-                start_path = os.path.expanduser("~/Library/CloudStorage/")
-            elif self.os_type == "Windows":
-                start_path = os.path.expanduser("~") # Default to home for Windows, can be refined
-        
-        start_path = os.path.expanduser(start_path)
-        if not os.path.exists(start_path):
-            start_path = os.path.expanduser("~") # Fallback to home
-
-        dialog.setDirectory(start_path)
-
-        if dialog.exec_():
-            selected_path = dialog.selectedFiles()
-            if selected_path:
-                self.log.info(f"User selected path: {selected_path[0]}")
-                return selected_path[0]
-        return None
