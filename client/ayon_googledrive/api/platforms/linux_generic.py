@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
-import subprocess
 import shutil
+import subprocess
 import time
-from pathlib import Path
+
+from ayon_googledrive.api.lib import clean_relative_path, run_process
 from ayon_googledrive.api.platforms.base import GDrivePlatformBase
-from ayon_googledrive.api.lib import run_process, normalize_path, clean_relative_path
+
 
 class GDriveLinuxPlatform(GDrivePlatformBase):
     """Linux platform handler for Google Drive operations"""
@@ -412,6 +413,30 @@ Comment=Mount Google Drive automatically
         """Find the full source path for a relative path in Google Drive on Linux"""
         clean_path = clean_relative_path(relative_path).replace("\\", "/")
         self.log.info(f"Linux: Looking for path: '{clean_path}'")
+        
+        # Check if the path contains "Shared drives" as a placeholder
+        # This means we need to find the actual localized shared drive name
+        if "Shared drives" in clean_path:
+            # Get the actual shared drive names from settings
+            shared_drives_names = self._get_shared_drives_names()
+            
+            # Find which shared drive name actually exists on the system
+            actual_shared_drives_name = None
+            mount_point = self.find_googledrive_mount()
+            if mount_point:
+                for sd_name in shared_drives_names:
+                    potential_shared_drives_folder = os.path.join(mount_point, sd_name)
+                    if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
+                        actual_shared_drives_name = sd_name
+                        self.log.debug(f"Found actual shared drives folder: {sd_name} in {mount_point}")
+                        break
+            
+            if actual_shared_drives_name:
+                # Replace "Shared drives" with the actual localized name
+                clean_path = clean_path.replace("Shared drives", actual_shared_drives_name)
+                self.log.debug(f"Replaced 'Shared drives' with '{actual_shared_drives_name}' in path: {clean_path}")
+            else:
+                self.log.warning("Could not find any localized shared drives folder on the system")
         
         # Find the base Google Drive mount point
         mount_point = self.find_googledrive_mount()

@@ -240,17 +240,32 @@ class GDriveManager():
 
     def is_googledrive_mounted(self):
         """Check if Google Drive is mounted at the expected location"""
+        # Use the platform handler to find the actual mount point
+        actual_mount = self.platform_handler.find_googledrive_mount()
+        if actual_mount:
+            self.log.debug(f"Found Google Drive mount point: {actual_mount}")
+            return True
+            
+        # Fallback to checking the configured mount point
         desired_mount = self._get_desired_mount()
         if not desired_mount:
+            self.log.debug("No desired mount point configured")
             return False
 
         if self.os_type == "Windows":
-            return os.path.exists(desired_mount)
+            exists = os.path.exists(desired_mount)
+            self.log.debug(f"Windows mount point {desired_mount} exists: {exists}")
+            return exists
         elif self.os_type == "Darwin":
-            return os.path.exists(desired_mount)
+            exists = os.path.exists(desired_mount)
+            self.log.debug(f"macOS mount point {desired_mount} exists: {exists}")
+            return exists
         elif self.os_type == "Linux":
-            return os.path.exists(desired_mount)
+            exists = os.path.exists(desired_mount)
+            self.log.debug(f"Linux mount point {desired_mount} exists: {exists}")
+            return exists
         else:
+            self.log.debug(f"Unknown platform: {self.os_type}")
             return False
 
     def debug_localization_info(self):

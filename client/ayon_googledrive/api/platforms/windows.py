@@ -2,14 +2,12 @@
 import ctypes
 import glob
 import os
-import platform
 import re
 import subprocess
 import threading
 import time
-import locale
 
-from ayon_googledrive.api.lib import clean_relative_path, run_process
+from ayon_googledrive.api.lib import run_process
 from ayon_googledrive.api.platforms.base import GDrivePlatformBase
 from ayon_googledrive.logger import log
 
@@ -20,6 +18,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
     def __init__(self, settings=None):
         super().__init__(settings)
         self._installing = False
+        self._installing_lock = threading.Lock()
 
     @property
     def installing(self):
@@ -67,6 +66,27 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         except Exception as e:
             self.log.error(f"Error checking Google Drive login: {e}")
             return False
+    
+    def find_googledrive_mount(self):
+        """Find the actual Google Drive mount point on Windows"""
+        self.log.debug("Finding Google Drive mount point on Windows")
+        
+        # Check for Shared drives folder on any drive letter using localized names
+        shared_drives_names = self._get_shared_drives_names()
+        self.log.debug(f"Windows: Checking for shared drive names: {shared_drives_names}")
+        
+        for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            drive_root = f"{drive_letter}:\\"
+            
+            # Check for any of the localized shared drive names
+            for sd_name in shared_drives_names:
+                shared_drives_path = os.path.join(drive_root, sd_name)
+                if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
+                    self.log.debug(f"Found Google Drive mount point: {drive_letter}:\\ (with shared drives: {sd_name})")
+                    return f"{drive_letter}:\\"
+        
+        self.log.warning("Could not find Google Drive mount point")
+        return None
     
     def start_googledrive(self):
         """Start Google Drive application on Windows"""
@@ -191,10 +211,13 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
 
             # Check for any of the internationalized "Shared Drives" names
             shared_drives_names = self._get_shared_drives_names()
+            self.log.debug(f"Windows: Checking drive {drive_letter}: with shared drive names: {shared_drives_names}")
             
             for sd_name in shared_drives_names:
                 potential_shared_drives_folder = os.path.join(drive_root, sd_name)
+                self.log.debug(f"Windows: Testing path: {potential_shared_drives_folder}")
                 if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
+                    self.log.debug(f"Windows: Found shared drives folder: {potential_shared_drives_folder}")
                     found_drive_bases.append(potential_shared_drives_folder)
                     
                     # Check if this is the My Drive folder as well

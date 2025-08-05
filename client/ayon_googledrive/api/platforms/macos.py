@@ -312,6 +312,33 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
             relative_path = '/' + relative_path.lstrip('\\')
         relative_path = relative_path.replace('\\', '/')
         
+        # Check if the path contains "Shared drives" as a placeholder
+        # This means we need to find the actual localized shared drive name
+        if "Shared drives" in relative_path:
+            # Get the actual shared drive names from settings
+            shared_drives_names = self._get_shared_drives_names()
+            
+            # Find which shared drive name actually exists on the system
+            actual_shared_drives_name = None
+            base_paths = self._get_all_gdrive_paths()
+            
+            for base_path in base_paths:
+                for sd_name in shared_drives_names:
+                    potential_shared_drives_folder = os.path.join(base_path, sd_name)
+                    if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
+                        actual_shared_drives_name = sd_name
+                        self.log.debug(f"Found actual shared drives folder: {sd_name} in {base_path}")
+                        break
+                if actual_shared_drives_name:
+                    break
+            
+            if actual_shared_drives_name:
+                # Replace "Shared drives" with the actual localized name
+                relative_path = relative_path.replace("Shared drives", actual_shared_drives_name)
+                self.log.debug(f"Replaced 'Shared drives' with '{actual_shared_drives_name}' in path: {relative_path}")
+            else:
+                self.log.warning("Could not find any localized shared drives folder on the system")
+        
         # Get all potential Google Drive paths
         base_paths = self._get_all_gdrive_paths()
         
@@ -402,42 +429,72 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         """Get all possible Google Drive paths on this system"""
         paths = []
         
+        self.log.debug("Checking for Google Drive paths on macOS")
+        
         # Check CloudStorage for GoogleDrive folders using regex pattern
         cloud_storage = os.path.expanduser("~/Library/CloudStorage")
+        self.log.debug(f"Checking CloudStorage directory: {cloud_storage}")
         
         if os.path.exists(cloud_storage) and os.path.isdir(cloud_storage):
             try:
                 import re
+                import glob
                 # Pattern to match GoogleDrive-*@domain.* folders (any TLD and format)
                 pattern = re.compile(r'^GoogleDrive-.*@.*$')
                 
                 cloud_items = os.listdir(cloud_storage)
+                self.log.debug(f"Found {len(cloud_items)} items in CloudStorage")
                 
                 for item in cloud_items:
+                    self.log.debug(f"Checking CloudStorage item: {item}")
                     if pattern.match(item):
                         gdrive_path = os.path.join(cloud_storage, item)
                         if os.path.isdir(gdrive_path):
+                            self.log.debug(f"Found Google Drive in CloudStorage: {gdrive_path}")
                             paths.append(gdrive_path)
             except Exception as e:
                 self.log.error(f"Error checking CloudStorage: {e}")
+        else:
+            self.log.debug(f"CloudStorage directory does not exist: {cloud_storage}")
         
         # Check traditional mount points and common locations
         traditional_paths = [
             "/Volumes/GoogleDrive",
             "/Volumes/Google Drive", 
-            os.path.expanduser("~/Google Drive"),
-            "/Volumes/GoogleDrive-*",  # Pattern for mounted drives
-            "/Volumes/Google Drive-*"  # Pattern for mounted drives
+            os.path.expanduser("~/Google Drive")
         ]
         
+        self.log.debug("Checking traditional paths")
         for path in traditional_paths:
+            self.log.debug(f"Checking traditional path: {path}")
             if os.path.exists(path) and os.path.isdir(path):
+                self.log.debug(f"Found Google Drive at traditional path: {path}")
                 paths.append(path)
+        
+        # Check for wildcard patterns in /Volumes
+        try:
+            import glob
+            wildcard_patterns = [
+                "/Volumes/GoogleDrive-*",
+                "/Volumes/Google Drive-*"
+            ]
+            
+            self.log.debug("Checking wildcard patterns")
+            for pattern in wildcard_patterns:
+                self.log.debug(f"Checking wildcard pattern: {pattern}")
+                matching_paths = glob.glob(pattern)
+                for path in matching_paths:
+                    if os.path.isdir(path):
+                        self.log.debug(f"Found Google Drive with wildcard pattern: {path}")
+                        paths.append(path)
+        except Exception as e:
+            self.log.debug(f"Error checking wildcard patterns: {e}")
         
         # Check for mounted volumes using mount command
         try:
             result = run_process(["mount"])
             if result and result.stdout:
+                self.log.debug("Checking mount command output")
                 for line in result.stdout.splitlines():
                     if "GoogleDrive" in line or "Google Drive" in line:
                         # Extract mount point from mount output
@@ -446,6 +503,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                             mount_point = parts[2]
                             if os.path.exists(mount_point) and os.path.isdir(mount_point):
                                 if mount_point not in paths:
+                                    self.log.debug(f"Found Google Drive via mount command: {mount_point}")
                                     paths.append(mount_point)
         except Exception as e:
             self.log.debug(f"Error checking mount command: {e}")
@@ -454,6 +512,7 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
         try:
             volumes_dir = "/Volumes"
             if os.path.exists(volumes_dir):
+                self.log.debug("Checking /Volumes symlinks")
                 for item in os.listdir(volumes_dir):
                     item_path = os.path.join(volumes_dir, item)
                     if os.path.islink(item_path) and ("GoogleDrive" in item or "Google Drive" in item):
@@ -461,40 +520,30 @@ class GDriveMacOSPlatform(GDrivePlatformBase):
                             target = os.readlink(item_path)
                             if os.path.exists(target) and os.path.isdir(target):
                                 if target not in paths:
+                                    self.log.debug(f"Found Google Drive via /Volumes symlink: {target}")
                                     paths.append(target)
                         except OSError:
                             pass
         except Exception as e:
             self.log.debug(f"Error checking /Volumes symlinks: {e}")
+        
+        self.log.debug(f"Total Google Drive paths found: {len(paths)}")
+        for i, path in enumerate(paths):
+            self.log.debug(f"  {i+1}. {path}")
                 
         return paths
 
     def find_googledrive_mount(self):
         """Find the actual Google Drive mount point on macOS"""
-        #self.log.debug("Finding Google Drive mount point")
+        self.log.debug("Finding Google Drive mount point on macOS")
         
-        # Check the traditional locations first
-        traditional_paths = [
-            os.path.expanduser("~/Google Drive"),
-            "/Volumes/GoogleDrive"
-        ]
+        # Use the same logic as _get_all_gdrive_paths to ensure consistency
+        paths = self._get_all_gdrive_paths()
         
-        for path in traditional_paths:
-            if os.path.exists(path) and os.path.isdir(path):
-                #self.log.debug(f"Found traditional Google Drive mount at {path}")
-                return path
-                
-        # Check the modern CloudStorage location
-        cloud_storage_base = os.path.expanduser("~/Library/CloudStorage")
-        if (os.path.exists(cloud_storage_base)):
-            #self.log.debug(f"Checking for Google Drive in CloudStorage: {cloud_storage_base}")
-            # Look for directories starting with "GoogleDrive-" or "Google Drive-"
-            for item in os.listdir(cloud_storage_base):
-                if item.startswith(("GoogleDrive-", "Google Drive-")):
-                    cloud_drive_path = os.path.join(cloud_storage_base, item)
-                    if os.path.isdir(cloud_drive_path):
-                        #self.log.debug(f"Found modern Google Drive mount at {cloud_drive_path}")
-                        return cloud_drive_path
+        if paths:
+            # Return the first found path
+            self.log.debug(f"Found Google Drive mount point: {paths[0]}")
+            return paths[0]
         
         self.log.warning("Could not find Google Drive mount point")
         return None

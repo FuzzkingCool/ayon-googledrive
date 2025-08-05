@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import re
-from typing import Dict, List, Any, Optional, Union
+from typing import List
+
 # from pydantic import Field, validator
 from ayon_server.settings import BaseSettingsModel, SettingsField
 
@@ -42,20 +42,20 @@ DEFAULT_GDRIVE_SETTINGS = {
     "mappings": [
         {
             "name": "Projects",
-            "source_path": "\\Shared drives\\Projects",
+            "source_path": "Shared drives\\Projects",
             "windows_target": "P:\\",
             "macos_target": "/Volumes/Projects",
             "linux_target": "/mnt/projects"
         },
         {
             "name": "Renders",
-            "source_path": "\\Shared drives\\Renders",
+            "source_path": "Shared drives\\Renders",
             "windows_target": "R:\\",
             "macos_target": "/Volumes/Renders",
             "linux_target": "/mnt/renders"
         }
     ],
-    "install_googledrive": False,
+    "auto_install_googledrive": False,
     "download_url": {
         "windows": "https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe",
         "macos": "https://dl.google.com/drive-file-stream/GoogleDrive.dmg",

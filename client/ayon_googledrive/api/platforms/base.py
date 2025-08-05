@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 import locale
+import logging
+import os
 import platform
-from typing import List, Optional, Dict, Any
+
 
 class GDrivePlatformBase:
     # Default shared drive names (fallback if settings are not available)
@@ -108,6 +108,7 @@ class GDrivePlatformBase:
                             # Cache the result
                             self._shared_drives_names_cache = names
                             self._cache_timestamp = current_time
+                            self.log.debug(f"Extracted {len(names)} shared drive names from settings: {names}")
                             return names
                         else:
                             self.log.warning("No shared drive names extracted from settings")
@@ -123,6 +124,7 @@ class GDrivePlatformBase:
         # Fallback to default names
         self._shared_drives_names_cache = self.default_shared_drives_names
         self._cache_timestamp = current_time
+        self.log.debug(f"Using default shared drive names: {self.default_shared_drives_names}")
         return self.default_shared_drives_names
     
     def clear_shared_drives_cache(self):
