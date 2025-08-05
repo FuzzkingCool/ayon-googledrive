@@ -1,6 +1,6 @@
 [project]
 name = "ayon-googledrive"
-version = "0.3.7"
+version = "0.4.0"
 description = ""
 authors = [{ name = "Aleks Berland", email = "aleks@fuzzking.cool" }]
 license = { text = "Apache 2.0" }
@@ -19,7 +19,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "ayon-googledrive"
-version = "0.3.7"
+version = "0.4.0"
 package-mode = false
 [tool.poetry.group.pyblish.dependencies]
 pyblish = "^1.7.0"

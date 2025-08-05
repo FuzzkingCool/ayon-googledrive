@@ -13,7 +13,6 @@ from ayon_googledrive.logger import log
 from ayon_googledrive.ui.menu_builder import GDriveMenuBuilder
 from ayon_googledrive.ui.notifications import show_notification
 from ayon_googledrive.version import __version__
-from ayon_googledrive.constants import ADDON_ROOT
 
 
 class GDriveAddon(AYONAddon, ITrayAddon):
@@ -553,14 +552,13 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                     if drive_mounted:
                         log.debug(f"Google Drive basic mount point detected at drive letter: {mounted_letter}:")
                 else:
-                    if platform.system() == "Darwin":
-                        if os.path.exists("/Volumes/GoogleDrive"):
-                            drive_mounted = True
-                    else: # Linux
-                        if os.path.exists("/mnt/google_drive"):
-                            drive_mounted = True
+                    # Use the platform handler to check mount points properly
+                    drive_mounted = self._gdrive_manager.is_googledrive_mounted()
+                    log.debug(f"Platform handler reports drive_mounted: {drive_mounted}")
                     if drive_mounted:
                         log.debug("Google Drive basic mount point detected.")
+                    else:
+                        log.debug("Google Drive basic mount point not detected by platform handler.")
 
                 # Check accessibility of configured mapping target paths within Google Drive
                 configured_targets_accessible = False # Default to false
@@ -570,23 +568,20 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                         mappings = self._gdrive_manager._get_mappings()
                         if mappings: # If there are any mappings configured
                             for mapping_config in mappings:
-                                os_type_lower = self._gdrive_manager.os_type.lower()
-                                target_path_key = f"{os_type_lower}_target" # e.g., "windows_target"
-                                configured_gdrive_internal_path = mapping_config.get(target_path_key)
-
-                                if not configured_gdrive_internal_path:
-                                    log.warning(f"Mapping configuration '{mapping_config.get('name', 'N/A')}' is missing target path for platform {self._gdrive_manager.os_type}.")
-                                    configured_targets_accessible = False
-                                    break 
-                                if not os.path.exists(configured_gdrive_internal_path):
-                                    log.warning(f"Configured mapping target path does not exist: {configured_gdrive_internal_path} (for mapping '{mapping_config.get('name', 'N/A')}').")
-                                    configured_targets_accessible = False
-                                    break
+                                # Check if the source path exists within Google Drive
+                                source_path = mapping_config.get("source_path", "")
+                                if source_path:
+                                    # Use the platform handler to find the actual source path
+                                    actual_source = self._gdrive_manager.platform_handler.find_source_path(source_path)
+                                    if not actual_source or not os.path.exists(actual_source):
+                                        log.warning(f"Configured mapping source path does not exist: {source_path} (for mapping '{mapping_config.get('name', 'N/A')}').")
+                                        configured_targets_accessible = False
+                                        break
                             if configured_targets_accessible and mappings:
-                                log.debug("All configured mapping target paths within Google Drive are accessible.")
+                                log.debug("All configured mapping source paths within Google Drive are accessible.")
                         # else: No mappings configured, configured_targets_accessible remains True (vacuously true)
                     except Exception as map_ex:
-                        log.error(f"Error while checking configured mapping target paths: {map_ex}", exc_info=True)
+                        log.error(f"Error while checking configured mapping source paths: {map_ex}", exc_info=True)
                         configured_targets_accessible = False # Treat errors as not accessible
                 # else: drive_mounted (basic mount) is False, so configured_targets_accessible remains False.
 
@@ -615,12 +610,17 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
                         if not drive_mounted:
                             should_skip_restart = True
-                            reason_for_skip = "Basic Google Drive mount point (e.g., G:\\Shared drives) not found."
+                            if platform.system() == "Windows":
+                                reason_for_skip = "Basic Google Drive mount point (e.g., G:\\Shared drives) not found."
+                            elif platform.system() == "Darwin":
+                                reason_for_skip = "Basic Google Drive mount point not found."
+                            else:
+                                reason_for_skip = "Basic Google Drive mount point not found."
                         elif not process_running and not configured_targets_accessible:
                             # Process died AND configured GDrive internal paths are missing.
                             # Restarting might cause GDrive to crash again if it needs these paths.
                             should_skip_restart = True
-                            reason_for_skip = "Google Drive process not running AND configured mapping target paths are not accessible. Skipping restart to avoid potential instability."
+                            reason_for_skip = "Google Drive process not running AND configured mapping source paths are not accessible. Skipping restart to avoid potential instability."
                         
                         if should_skip_restart:
                             log.warning(f"Skipping Google Drive restart attempt. Reason: {reason_for_skip}")

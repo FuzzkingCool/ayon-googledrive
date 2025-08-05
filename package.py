@@ -1,6 +1,6 @@
 name = "googledrive"
 title = "GoogleDrive"
-version = "0.3.7"
+version = "0.4.0"
 client_dir = "ayon_googledrive"
 
 ayon_server_version = ">=1.1.2"
