@@ -542,23 +542,13 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 
                 drive_mounted = False
                 mounted_letter = None
-                if platform.system() == "Windows":
-                    for drive_letter_iter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ": # Renamed to avoid conflict
-                        shared_drives_path = f"{drive_letter_iter}:\\Shared drives"
-                        if os.path.exists(shared_drives_path):
-                            drive_mounted = True
-                            mounted_letter = drive_letter_iter
-                            break
-                    if drive_mounted:
-                        log.debug(f"Google Drive basic mount point detected at drive letter: {mounted_letter}:")
+                # Use the platform handler to check mount points properly for all platforms
+                drive_mounted = self._gdrive_manager.is_googledrive_mounted()
+                log.debug(f"Platform handler reports drive_mounted: {drive_mounted}")
+                if drive_mounted:
+                    log.debug("Google Drive basic mount point detected.")
                 else:
-                    # Use the platform handler to check mount points properly
-                    drive_mounted = self._gdrive_manager.is_googledrive_mounted()
-                    log.debug(f"Platform handler reports drive_mounted: {drive_mounted}")
-                    if drive_mounted:
-                        log.debug("Google Drive basic mount point detected.")
-                    else:
-                        log.debug("Google Drive basic mount point not detected by platform handler.")
+                    log.debug("Google Drive basic mount point not detected by platform handler.")
 
                 # Check accessibility of configured mapping target paths within Google Drive
                 configured_targets_accessible = False # Default to false
@@ -611,7 +601,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                         if not drive_mounted:
                             should_skip_restart = True
                             if platform.system() == "Windows":
-                                reason_for_skip = "Basic Google Drive mount point (e.g., G:\\Shared drives) not found."
+                                reason_for_skip = "Basic Google Drive mount point not found."
                             elif platform.system() == "Darwin":
                                 reason_for_skip = "Basic Google Drive mount point not found."
                             else:

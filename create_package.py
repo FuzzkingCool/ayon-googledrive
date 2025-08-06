@@ -474,6 +474,11 @@ def main(
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(src, dst)
 
+    # Clean up bundle directory
+    if os.path.exists(bundle_dir):
+        log.info(f"Cleaning up bundle directory: {bundle_dir}")
+        shutil.rmtree(bundle_dir)
+
     log.info("Package creation finished")
 
 
