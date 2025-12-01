@@ -52,13 +52,38 @@ class SafeStreamHandler(logging.StreamHandler):
         
     def emit(self, record):
         try:
-            # Check if stream is still valid
-            if self.stream is None or not hasattr(self.stream, 'write'):
+            # Check if stream is still valid before emitting
+            if self.stream is None:
                 self.stream = self.fallback_stream
-            super().emit(record)
-            self.flush()
+            elif not hasattr(self.stream, 'write'):
+                self.stream = self.fallback_stream
+            else:
+                # Additional check: try to access the write method
+                try:
+                    if not callable(getattr(self.stream, 'write', None)):
+                        self.stream = self.fallback_stream
+                except Exception:
+                    self.stream = self.fallback_stream
+            
+            # Only proceed if we have a valid stream
+            if self.stream is not None and hasattr(self.stream, 'write'):
+                super().emit(record)
+                try:
+                    self.flush()
+                except Exception:
+                    pass  # Ignore flush errors
+        except (AttributeError, OSError, ValueError) as e:
+            # Handle specific errors that can occur with streams
+            try:
+                # Try to use fallback stream
+                if self.stream != self.fallback_stream:
+                    self.stream = self.fallback_stream
+                    super().emit(record)
+            except Exception:
+                # Last resort: silently fail to prevent logging errors from crashing the app
+                pass
         except Exception:
-            # Never fail on logging
+            # Never fail on logging - catch all other exceptions
             pass
 
 # Add file handler only if AYON_DEBUG is enabled
