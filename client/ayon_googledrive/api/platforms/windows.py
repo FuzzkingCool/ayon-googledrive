@@ -198,6 +198,38 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         # Remove leading backslashes that might be in the configuration
         clean_path = clean_path.lstrip('\\/')
         
+        # Check if the path contains "Shared drives" as a placeholder
+        # This means we need to find the actual localized shared drive name
+        if "Shared drives" in clean_path or "Shared Drives" in clean_path:
+            # Get the actual shared drive names from settings
+            shared_drives_names = self._get_shared_drives_names()
+            
+            # Find which shared drive name actually exists on the system
+            actual_shared_drives_name = None
+            drive_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            
+            for drive_letter in drive_letters:
+                drive_root = f"{drive_letter}:\\"
+                if not os.path.exists(drive_root):
+                    continue
+                
+                for sd_name in shared_drives_names:
+                    potential_shared_drives_folder = os.path.join(drive_root, sd_name)
+                    if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
+                        actual_shared_drives_name = sd_name
+                        self.log.debug(f"Windows: Found actual shared drives folder: {sd_name} in {drive_root}")
+                        break
+                if actual_shared_drives_name:
+                    break
+            
+            if actual_shared_drives_name:
+                # Replace "Shared drives" or "Shared Drives" with the actual localized name
+                clean_path = clean_path.replace("Shared drives", actual_shared_drives_name)
+                clean_path = clean_path.replace("Shared Drives", actual_shared_drives_name)
+                self.log.debug(f"Windows: Replaced 'Shared drives' with '{actual_shared_drives_name}' in path: {clean_path}")
+            else:
+                self.log.warning("Windows: Could not find any localized shared drives folder on the system")
+        
         # Check all available drive letters
         drive_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         found_drive_bases = []
