@@ -6,7 +6,7 @@ try:
     from ayon_googledrive.api.gdrive_manager import GDriveManager
     from ayon_googledrive.logger import log
 
-    log.info(f"Successfully loaded ayon_googledrive {__version__}")
+    # log.info(f"Successfully loaded ayon_googledrive {__version__}")
 
     __all__ = (
         "__version__",

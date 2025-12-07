@@ -82,7 +82,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             for sd_name in shared_drives_names:
                 shared_drives_path = os.path.join(drive_root, sd_name)
                 if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
-                    self.log.debug(f"Found Google Drive mount point: {drive_letter}:\\ (with shared drives: {sd_name})")
+                    # self.log.debug(f"Found Google Drive mount point: {drive_letter}:\\ (with shared drives: {sd_name})")
                     return f"{drive_letter}:\\"
         
         self.log.warning("Could not find Google Drive mount point")
@@ -154,7 +154,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                     exe_path = os.path.join(latest_version_dir, "GoogleDriveFS.exe")
                     # Only log once per session
                     if not hasattr(self, '_logged_executable_path'):
-                        log.debug(f"Using Google Drive executable from wildcard: {exe_path}")
+                        # log.debug(f"Using Google Drive executable from wildcard: {exe_path}")
                         self._logged_executable_path = exe_path
                     return exe_path
                 if path.lower().endswith('.exe'):

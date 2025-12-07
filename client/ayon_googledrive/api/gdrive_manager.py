@@ -2,9 +2,7 @@
 import os
 import platform
 import time
-import logging
 
-from ayon_googledrive.api.lib import get_settings
 from ayon_googledrive.gdrive_installer import GDriveInstaller
 from ayon_googledrive.logger import log
 
@@ -166,10 +164,11 @@ class GDriveManager():
 
         # Get configured mappings
         mappings = self._get_mappings()
-        self.log.debug(f"Found {len(mappings) if mappings else 0} configured mappings")
+        # self.log.debug(f"Found {len(mappings) if mappings else 0} configured mappings")
         if mappings:
             for i, mapping in enumerate(mappings):
-                self.log.debug(f"  Mapping {i+1}: {mapping.get('name', 'unnamed')} -> {mapping.get('source_path', 'no source')} -> {mapping.get('windows_target', 'no target')}")
+                # self.log.debug(f"  Mapping {i+1}: {mapping.get('name', 'unnamed')} -> {mapping.get('source_path', 'no source')} -> {mapping.get('windows_target', 'no target')}")
+                pass
         
         if not mappings:
             self.log.info("No drive mappings configured - nothing to map")
@@ -181,7 +180,7 @@ class GDriveManager():
             try:
                 if not self._process_mapping(mapping):
                     success = False
-            except Exception as e:
+            except Exception:
                 self.log.error(f"Failed to process mapping: {mapping.get('name', 'unnamed')}")
                 success = False
 
@@ -190,7 +189,7 @@ class GDriveManager():
     def _get_mappings(self):
         """Get configured drive mappings from settings"""
         mappings = self.settings.get("mappings", [])
-        self.log.debug(f"Retrieved mappings from settings: {len(mappings) if mappings else 0} mappings found")
+        # self.log.debug(f"Retrieved mappings from settings: {len(mappings) if mappings else 0} mappings found")
         return mappings
 
     def _get_desired_mount(self):
@@ -243,7 +242,7 @@ class GDriveManager():
         # Use the platform handler to find the actual mount point
         actual_mount = self.platform_handler.find_googledrive_mount()
         if actual_mount:
-            self.log.debug(f"Found Google Drive mount point: {actual_mount}")
+            # self.log.debug(f"Found Google Drive mount point: {actual_mount}")
             return True
             
         # Fallback to checking the configured mount point
@@ -271,14 +270,15 @@ class GDriveManager():
     def debug_localization_info(self):
         """Debug method to print localization information - always runs for troubleshooting"""
             
-        self.log.info(f"Platform: {self.os_type}")
+        # self.log.info(f"Platform: {self.os_type}")
         
         if self.settings:
             localization = self.settings.get("localization", {})
             if localization:
                 shared_drive_names = localization.get("shared_drive_names", [])
                 if isinstance(shared_drive_names, list):
-                    self.log.info(f"Loaded {len(shared_drive_names)} localization configurations")
+                    # self.log.info(f"Loaded {len(shared_drive_names)} localization configurations")
+                    pass
                 else:
                     self.log.warning("Shared drive names not configured properly")
             else:
@@ -289,7 +289,8 @@ class GDriveManager():
         # Get shared drive names from platform handler
         try:
             shared_names = self.platform_handler._get_shared_drives_names()
-            self.log.info(f"Using {len(shared_names)} shared drive name variants")
+            # self.log.info(f"Using {len(shared_names)} shared drive name variants")
+            pass
         except Exception as e:
             self.log.error(f"Error getting shared drive names: {e}")
         
@@ -297,7 +298,8 @@ class GDriveManager():
         try:
             import locale
             current_locale = locale.getlocale()
-            self.log.info(f"System locale: {current_locale}")
+            # self.log.info(f"System locale: {current_locale}")
+            pass
         except Exception as e:
             self.log.debug(f"Could not get system locale: {e}")
         

@@ -41,11 +41,11 @@ class GDriveAddon(AYONAddon, ITrayAddon):
     
     def initialize(self, settings):
         """Initialization of addon."""
-        log.debug("Initializing Google Drive addon")
+        # log.debug("Initializing Google Drive addon")
  
         self.settings = settings.get("googledrive", {})
         # Use repr() to safely display Unicode characters in settings
-        log.debug(f"Loaded settings: {repr(self.settings)}")
+        # log.debug(f"Loaded settings: {repr(self.settings)}")
 
         # Initialize manager service
         self._gdrive_manager = GDriveManager(self.settings)
@@ -208,7 +208,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         # Store reference to parent tray menu for notifications
         menu.setProperty("parentTrayMenu", tray_menu)
         
-        log.debug("Creating Google Drive tray menu")
+        # log.debug("Creating Google Drive tray menu")
         
         # Connect the aboutToShow signal to update the menu contents dynamically
         menu.aboutToShow.connect(lambda: self._menu_builder.update_menu_contents(menu))
@@ -234,7 +234,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         """Update just the submenu title and icon when parent tray opens"""
         # Only log occasionally to reduce spam
         if not hasattr(self, '_last_submenu_log') or time.time() - self._last_submenu_log > 60:
-            log.debug("Updating submenu status on parent tray aboutToShow")
+            # log.debug("Updating submenu status on parent tray aboutToShow")
             self._last_submenu_log = time.time()
         
         # Perform a quick, non-blocking status check instead of relying on cache
@@ -451,7 +451,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         self._monitor_thread = threading.Thread(target=self._monitor_googledrive)
         self._monitor_thread.daemon = True
         self._monitor_thread.start()
-        log.debug("Started Google Drive monitoring thread")
+        # log.debug("Started Google Drive monitoring thread")
 
     def _stop_monitoring(self):
         """Stop background monitoring."""
@@ -476,7 +476,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         
         check_interval = 60  # Increased from 30 to 60 seconds
         menu_update_interval = 5  # Update menu every 5 cycles (5 minutes) instead of 3 (3 minutes)
-        log.debug("Google Drive monitoring thread started")
+        # log.debug("Google Drive monitoring thread started")
 
         menu_update_counter = 0
         retry_count = 0
@@ -544,11 +544,13 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 mounted_letter = None
                 # Use the platform handler to check mount points properly for all platforms
                 drive_mounted = self._gdrive_manager.is_googledrive_mounted()
-                log.debug(f"Platform handler reports drive_mounted: {drive_mounted}")
+                # log.debug(f"Platform handler reports drive_mounted: {drive_mounted}")
                 if drive_mounted:
-                    log.debug("Google Drive basic mount point detected.")
+                    # log.debug("Google Drive basic mount point detected.")
+                    pass
                 else:
-                    log.debug("Google Drive basic mount point not detected by platform handler.")
+                    # log.debug("Google Drive basic mount point not detected by platform handler.")
+                    pass
 
                 # Check accessibility of configured mapping target paths within Google Drive
                 configured_targets_accessible = False # Default to false
@@ -568,7 +570,8 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                                         configured_targets_accessible = False
                                         break
                             if configured_targets_accessible and mappings:
-                                log.debug("All configured mapping source paths within Google Drive are accessible.")
+                                # log.debug("All configured mapping source paths within Google Drive are accessible.")
+                                pass
                         # else: No mappings configured, configured_targets_accessible remains True (vacuously true)
                     except Exception as map_ex:
                         log.error(f"Error while checking configured mapping source paths: {map_ex}", exc_info=True)
