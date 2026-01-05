@@ -46,9 +46,12 @@ log.propagate = False
 # Define a safe handler class that won't crash on None streams
 class SafeStreamHandler(logging.StreamHandler):
     def __init__(self, stream=None):
-        # Use a StringIO if stream is None
+        # Use a StringIO if stream is None or invalid
         self.fallback_stream = io.StringIO()
-        super().__init__(stream or self.fallback_stream)
+        # Validate stream before using it
+        if stream is None or not hasattr(stream, 'write'):
+            stream = self.fallback_stream
+        super().__init__(stream)
         
     def emit(self, record):
         try:
@@ -65,23 +68,27 @@ class SafeStreamHandler(logging.StreamHandler):
                 except Exception:
                     self.stream = self.fallback_stream
             
+            # Ensure we have a valid stream before calling super().emit()
+            # This is critical because the stream can become None in threads
+            if self.stream is None:
+                self.stream = self.fallback_stream
+            
             # Only proceed if we have a valid stream
             if self.stream is not None and hasattr(self.stream, 'write'):
-                super().emit(record)
                 try:
-                    self.flush()
-                except Exception:
-                    pass  # Ignore flush errors
-        except (AttributeError, OSError, ValueError) as e:
-            # Handle specific errors that can occur with streams
-            try:
-                # Try to use fallback stream
-                if self.stream != self.fallback_stream:
-                    self.stream = self.fallback_stream
                     super().emit(record)
-            except Exception:
-                # Last resort: silently fail to prevent logging errors from crashing the app
-                pass
+                    try:
+                        self.flush()
+                    except Exception:
+                        pass  # Ignore flush errors
+                except (AttributeError, OSError, ValueError):
+                    # Stream became invalid during emit, switch to fallback
+                    if self.stream != self.fallback_stream:
+                        self.stream = self.fallback_stream
+                        try:
+                            super().emit(record)
+                        except Exception:
+                            pass  # Silently fail to prevent logging errors from crashing the app
         except Exception:
             # Never fail on logging - catch all other exceptions
             pass
@@ -101,20 +108,37 @@ if ayon_debug:
 # Add console handler with explicit stream and error handling
 try:
     # Use UTF-8 encoding for console output on Windows
+    stream = None
     if sys.platform == "win32":
         import codecs
-        # Force UTF-8 encoding for stderr on Windows
-        if hasattr(sys.stderr, 'reconfigure'):
-            sys.stderr.reconfigure(encoding='utf-8')
-        stream_handler = SafeStreamHandler(stream=codecs.getwriter('utf-8')(sys.stderr.buffer))
+        # Check if stderr is valid before using it
+        if sys.stderr is not None and hasattr(sys.stderr, 'buffer'):
+            try:
+                # Force UTF-8 encoding for stderr on Windows
+                if hasattr(sys.stderr, 'reconfigure'):
+                    sys.stderr.reconfigure(encoding='utf-8')
+                stream = codecs.getwriter('utf-8')(sys.stderr.buffer)
+            except Exception:
+                # Fallback to stderr directly if buffer access fails
+                stream = sys.stderr if sys.stderr is not None else None
+        else:
+            stream = sys.stderr if sys.stderr is not None else None
     else:
-        stream_handler = SafeStreamHandler(stream=sys.stderr)
+        stream = sys.stderr if sys.stderr is not None else None
     
+    stream_handler = SafeStreamHandler(stream=stream)
     stream_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
     stream_handler.setLevel(logging.DEBUG if ayon_debug else log.level)
     log.addHandler(stream_handler)
 except Exception:
-    print("Failed to create console log handler")
+    # If all else fails, create a handler with fallback stream
+    try:
+        stream_handler = SafeStreamHandler(stream=None)
+        stream_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
+        stream_handler.setLevel(logging.DEBUG if ayon_debug else log.level)
+        log.addHandler(stream_handler)
+    except Exception:
+        print("Failed to create console log handler")
 
 # Create safe logging methods that won't crash
 def safe_log(func):

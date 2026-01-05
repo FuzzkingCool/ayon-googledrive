@@ -4,6 +4,8 @@ import logging
 import os
 import platform
 
+from ayon_googledrive.logger import log
+
 
 class GDrivePlatformBase:
     # Default shared drive names (fallback if settings are not available)
@@ -30,7 +32,7 @@ class GDrivePlatformBase:
     
     def __init__(self, settings=None):
         self.settings = settings
-        self.log = logging.getLogger(self.__class__.__name__)
+        self.log = log
         # Cache for shared drive names to prevent repeated processing
         self._shared_drives_names_cache = None
         self._cache_timestamp = 0
