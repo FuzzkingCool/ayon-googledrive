@@ -56,11 +56,9 @@ class GDriveManager():
 
     def install_googledrive(self):
         """Download and install Google Drive for Desktop"""
-        self.log.debug("Attempting to install Google Drive for Desktop")
-        
-        # First check if already installed
+        # self.log.debug("Attempting to install Google Drive for Desktop")
         if self.is_googledrive_installed():
-            self.log.debug("Google Drive already installed")
+            # self.log.debug("Google Drive already installed")
             return True
         
         # Check if installation is in progress
@@ -69,7 +67,7 @@ class GDriveManager():
             try:
                 file_age = time.time() - os.path.getmtime(lock_file)
                 if file_age < 600:  # 10 minutes
-                    self.log.info("Google Drive installation already in progress")
+                    # self.log.info("Google Drive installation already in progress")
                     return True
             except Exception as e:
                 self.log.error(f"Error checking installation lock file: {e}")
@@ -84,7 +82,7 @@ class GDriveManager():
         )
         installer = GDriveInstaller(self.settings)
         installer_path = installer.get_installer_path()
-        self.log.info(f"Installer path: {installer_path}")
+        # self.log.info(f"Installer path: {installer_path}")
 
         if not installer_path:
             self.log.error("Failed to download Google Drive installer")
@@ -171,7 +169,7 @@ class GDriveManager():
                 pass
         
         if not mappings:
-            self.log.info("No drive mappings configured - nothing to map")
+            # self.log.info("No drive mappings configured - nothing to map")
             return True
 
         # Process each mapping
@@ -248,23 +246,23 @@ class GDriveManager():
         # Fallback to checking the configured mount point
         desired_mount = self._get_desired_mount()
         if not desired_mount:
-            self.log.debug("No desired mount point configured")
+            # self.log.debug("No desired mount point configured")
             return False
 
         if self.os_type == "Windows":
             exists = os.path.exists(desired_mount)
-            self.log.debug(f"Windows mount point {desired_mount} exists: {exists}")
+            # self.log.debug(f"Windows mount point {desired_mount} exists: {exists}")
             return exists
         elif self.os_type == "Darwin":
             exists = os.path.exists(desired_mount)
-            self.log.debug(f"macOS mount point {desired_mount} exists: {exists}")
+            # self.log.debug(f"macOS mount point {desired_mount} exists: {exists}")
             return exists
         elif self.os_type == "Linux":
             exists = os.path.exists(desired_mount)
-            self.log.debug(f"Linux mount point {desired_mount} exists: {exists}")
+            # self.log.debug(f"Linux mount point {desired_mount} exists: {exists}")
             return exists
         else:
-            self.log.debug(f"Unknown platform: {self.os_type}")
+            # self.log.debug(f"Unknown platform: {self.os_type}")
             return False
 
     def debug_localization_info(self):
@@ -301,8 +299,8 @@ class GDriveManager():
             # self.log.info(f"System locale: {current_locale}")
             pass
         except Exception as e:
-            self.log.debug(f"Could not get system locale: {e}")
-        
+            # self.log.debug(f"Could not get system locale: {e}")
+            pass
         # Call platform-specific path debugging
         try:
             self.platform_handler.debug_path_formation()

@@ -22,7 +22,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
  
         # Detect desktop environment for better UI integration
         self.desktop_env = self._detect_desktop_environment()
-        self.log.debug(f"Detected desktop environment: {self.desktop_env}")
+        # self.log.debug(f"Detected desktop environment: {self.desktop_env}")
     
     def _detect_desktop_environment(self):
         """Detect the current desktop environment"""
@@ -55,8 +55,9 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                 cmd = ["notify-send", "--expire-time=5000", title, message]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
-            self.log.debug(f"Failed to show desktop notification: {e}")
-    
+            # self.log.debug(f"Failed to show desktop notification: {e}")
+            pass
+
     def is_googledrive_installed(self):
         """Check if Google Drive is installed on Linux"""
         # Check for official Google Drive app
@@ -88,7 +89,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
         installed_paths = [path for path in all_paths if os.path.exists(path)]
         
         if installed_paths:
-            self.log.debug(f"Found Google Drive at: {installed_paths[0]}")
+            # self.log.debug(f"Found Google Drive at: {installed_paths[0]}")
             return True
         
         # If no binary/launcher found, check for scripts or custom installations
@@ -102,7 +103,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
         for check in custom_checks:
             try:
                 if check():
-                    self.log.debug("Found custom Google Drive installation")
+                    # self.log.debug("Found custom Google Drive installation")
                     return True
             except Exception:
                 pass
@@ -136,13 +137,13 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
             for process in all_processes:
                 result = run_process(["pgrep", "-f", process], check=False)
                 if result and result.returncode == 0:
-                    self.log.debug(f"Found running process: {process}")
+                    # self.log.debug(f"Found running process: {process}")
                     return True
             
             # Check for mount points as fallback
             mount_points = self._find_gdrive_mount_points()
             if mount_points:
-                self.log.debug(f"Found Google Drive mount points: {mount_points}")
+                # self.log.debug(f"Found Google Drive mount points: {mount_points}")
                 return True
                 
             return False
@@ -183,7 +184,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
         
         for path in config_paths:
             if os.path.exists(path):
-                self.log.debug(f"Found Google Drive config at: {path}")
+                # self.log.debug(f"Found Google Drive config at: {path}")
                 return True
         
         # Check active mounts as fallback
@@ -193,7 +194,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                 # Try to access the mount point to verify it's functional
                 try:
                     os.listdir(point)
-                    self.log.debug(f"Found accessible Google Drive mount point: {point}")
+                    # self.log.debug(f"Found accessible Google Drive mount point: {point}")
                     return True
                 except Exception:
                     continue
@@ -232,7 +233,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                                 os.makedirs(mount_dir, exist_ok=True)
                         
                         # Run the command
-                        self.log.debug(f"Starting Google Drive with {name}: {' '.join(cmd)}")
+                        # self.log.debug(f"Starting Google Drive with {name}: {' '.join(cmd)}")
                         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         
                         # Give it a moment to start
@@ -241,7 +242,8 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                             self._show_notification("Google Drive Started", f"{name} has been started and is now running.")
                             return True
                 except FileNotFoundError:
-                    self.log.debug(f"Command not found: {cmd[0]}")
+                    # self.log.debug(f"Command not found: {cmd[0]}")
+                    pass
                 except Exception as e:
                     self.log.warning(f"Failed to start {name}: {e}")
                     
@@ -281,7 +283,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
     def install_googledrive(self, installer_path):
         """Install Google Drive on Linux"""
         try:
-            self.log.info(f"Installer path: {installer_path}")
+            # self.log.info(f"Installer path: {installer_path}")
             # Different installation methods depending on the installer type
             if installer_path.endswith(".deb"):
                 # Debian/Ubuntu
@@ -306,7 +308,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                 os.chmod(installer_path, 0o755)
                 cmd = ["sudo", installer_path]
             
-            self.log.debug(f"Running Google Drive installer: {installer_path}")
+            # self.log.debug(f"Running Google Drive installer: {installer_path}")
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode != 0:
@@ -319,7 +321,7 @@ class GDriveLinuxPlatform(GDrivePlatformBase):
                 )
                 return False
             
-            self.log.debug("Google Drive installation completed")
+            # self.log.debug("Google Drive installation completed")
             from ayon_googledrive.ui.notifications import show_notification
             show_notification(
                 "Google Drive Installation Complete",
@@ -395,7 +397,7 @@ Comment=Mount Google Drive automatically
                     # Make sure it's actually a mount point or has content
                     contents = os.listdir(path)
                     if contents:
-                        self.log.debug(f"Found Google Drive mount point at {path} with contents")
+                        # self.log.debug(f"Found Google Drive mount point at {path} with contents")
                         return path
                 except Exception:
                     continue
@@ -412,7 +414,7 @@ Comment=Mount Google Drive automatically
     def find_source_path(self, relative_path):
         """Find the full source path for a relative path in Google Drive on Linux"""
         clean_path = clean_relative_path(relative_path).replace("\\", "/")
-        self.log.info(f"Linux: Looking for path: '{clean_path}'")
+        # self.log.info(f"Linux: Looking for path: '{clean_path}'")
         
         # Check if the path contains "Shared drives" as a placeholder
         # This means we need to find the actual localized shared drive name
@@ -428,13 +430,13 @@ Comment=Mount Google Drive automatically
                     potential_shared_drives_folder = os.path.join(mount_point, sd_name)
                     if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
                         actual_shared_drives_name = sd_name
-                        self.log.debug(f"Found actual shared drives folder: {sd_name} in {mount_point}")
+                        # self.log.debug(f"Found actual shared drives folder: {sd_name} in {mount_point}")
                         break
             
             if actual_shared_drives_name:
                 # Replace "Shared drives" with the actual localized name
                 clean_path = clean_path.replace("Shared drives", actual_shared_drives_name)
-                self.log.debug(f"Replaced 'Shared drives' with '{actual_shared_drives_name}' in path: {clean_path}")
+                # self.log.debug(f"Replaced 'Shared drives' with '{actual_shared_drives_name}' in path: {clean_path}")
             else:
                 self.log.warning("Could not find any localized shared drives folder on the system")
         
@@ -444,13 +446,12 @@ Comment=Mount Google Drive automatically
             self.log.error("Linux: Could not find Google Drive mount point")
             return None
         
-        self.log.info(f"Linux: Found Google Drive mount point: {mount_point}")
-        self.log.debug(f"Linux: Looking for relative path '{clean_path}' in {mount_point}")
-        
+        # self.log.info(f"Linux: Found Google Drive mount point: {mount_point}")
+        # self.log.debug(f"Linux: Looking for relative path '{clean_path}' in {mount_point}")
         # Get shared drive names from settings
         shared_drives_names = self._get_shared_drives_names()
-        self.log.info(f"Linux: Using {len(shared_drives_names)} localized shared drives names")
-        self.log.debug(f"Linux: Shared drives names to check: {shared_drives_names}")
+        # self.log.info(f"Linux: Using {len(shared_drives_names)} localized shared drives names")
+        # self.log.debug(f"Linux: Shared drives names to check: {shared_drives_names}")
         
         # Try various path patterns
         path_patterns = [
@@ -470,28 +471,27 @@ Comment=Mount Google Drive automatically
         # Try stripping My Drive prefix if present
         path_patterns.append(os.path.join(mount_point, clean_path.replace("My Drive/", "")))
         
-        self.log.debug(f"Linux: Trying {len(path_patterns)} path patterns")
-        
+        # self.log.debug(f"Linux: Trying {len(path_patterns)} path patterns")
         for i, path in enumerate(path_patterns):
-            self.log.debug(f"Linux: Pattern {i+1}: {path}")
+            # self.log.debug(f"Linux: Pattern {i+1}: {path}")
             if os.path.exists(path):
-                self.log.info(f"Linux: Found source path: {path}")
+                # self.log.info(f"Linux: Found source path: {path}")
                 return path
         
         # Additional logging to help diagnose issues
         self.log.warning(f"Linux: Could not find '{clean_path}' in Google Drive mount. Contents of mount point:")
         try:
             contents = os.listdir(mount_point)
-            self.log.debug(f"Linux: Mount point contents: {contents}")
-            
+            # self.log.debug(f"Linux: Mount point contents: {contents}")
             # Check for Shared drives folder using settings
             for sd_name in shared_drives_names:
                 shared_drives_path = os.path.join(mount_point, sd_name)
                 if os.path.exists(shared_drives_path):
                     shared_drives = os.listdir(shared_drives_path)
-                    self.log.debug(f"Linux: Shared drives contents ({sd_name}): {shared_drives}")
+                    # self.log.debug(f"Linux: Shared drives contents ({sd_name}): {shared_drives}")
                 else:
-                    self.log.debug(f"Linux: Shared drives folder not found: {shared_drives_path}")
+                    # self.log.debug(f"Linux: Shared drives folder not found: {shared_drives_path}")
+                    pass
         except Exception as e:
             self.log.warning(f"Linux: Error listing mount contents: {e}")
         
@@ -508,36 +508,36 @@ Comment=Mount Google Drive automatically
             self.log.warning("Linux: Could not find Google Drive mount point")
             return drives
         
-        self.log.info(f"Linux: Found Google Drive mount point: {mount_point}")
-        
+        # self.log.info(f"Linux: Found Google Drive mount point: {mount_point}")
         # Get shared drive names from settings
         shared_drives_names = self._get_shared_drives_names()
-        self.log.info(f"Linux: Looking for shared drives using {len(shared_drives_names)} localized names")
-        self.log.debug(f"Linux: Shared drives names to check: {shared_drives_names}")
+        # self.log.info(f"Linux: Looking for shared drives using {len(shared_drives_names)} localized names")
+        # self.log.debug(f"Linux: Shared drives names to check: {shared_drives_names}")
         
         # Check for each shared drive name variant
         for sd_name in shared_drives_names:
             shared_drives_path = os.path.join(mount_point, sd_name)
-            self.log.debug(f"Linux: Checking shared drives path: {shared_drives_path}")
+            # self.log.debug(f"Linux: Checking shared drives path: {shared_drives_path}")
             
             if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
                 try:
-                    self.log.info(f"Linux: Found shared drives folder: {shared_drives_path}")
+                    # self.log.info(f"Linux: Found shared drives folder: {shared_drives_path}")
                     items = os.listdir(shared_drives_path)
-                    self.log.debug(f"Linux: Found items in {shared_drives_path}: {items}")
+                    # self.log.debug(f"Linux: Found items in {shared_drives_path}: {items}")
                     
                     drives = [d for d in items if os.path.isdir(os.path.join(shared_drives_path, d))]
                     if drives:
-                        self.log.info(f"Linux: Successfully found {len(drives)} shared drives: {drives}")
-                        self.log.debug(f"Linux: Returning drives from {shared_drives_path}: {drives}")
+                        # self.log.info(f"Linux: Successfully found {len(drives)} shared drives: {drives}")
+                        # self.log.debug(f"Linux: Returning drives from {shared_drives_path}: {drives}")
                         return drives
                     else:
-                        self.log.debug(f"Linux: No valid shared drives found in {shared_drives_path}")
+                        # self.log.debug(f"Linux: No valid shared drives found in {shared_drives_path}")
+                        pass
                 except Exception as e:
                     self.log.error(f"Linux: Error listing shared drives at {shared_drives_path}: {e}")
             else:
-                self.log.debug(f"Linux: Shared drives folder not found: {shared_drives_path}")
-        
+                # self.log.debug(f"Linux: Shared drives folder not found: {shared_drives_path}")
+                pass
         self.log.warning("Linux: No shared drives found in any detected paths.")
         return drives
     
@@ -552,10 +552,10 @@ Comment=Mount Google Drive automatically
             if os.path.islink(target_path):
                 current_target = os.readlink(target_path)
                 if current_target == source_path:
-                    self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
+                    # self.log.debug(f"Symlink already exists correctly: {target_path} -> {source_path}")
                     return True
                 elif self._is_legitimate_gdrive_symlink(target_path, source_path):
-                    self.log.info(f"Symlink for '{mapping_name}' at {target_path} exists and points to the same Google Drive content: {current_target}")
+                    # self.log.info(f"Symlink for '{mapping_name}' at {target_path} exists and points to the same Google Drive content: {current_target}")
                     return True
                 else:
                     # Symlink exists but points elsewhere
@@ -583,7 +583,7 @@ Comment=Mount Google Drive automatically
             # Create symlink
             try:
                 os.symlink(source_path, target_path)
-                self.log.debug(f"Created symlink: {target_path} -> {source_path}")
+                # self.log.debug(f"Created symlink: {target_path} -> {source_path}")
                 
                 # Create desktop shortcut if mapping name provided
                 if mapping_name:
@@ -613,10 +613,11 @@ URL=file://{target_path}
 Icon=folder-google-drive
 """)
                 os.chmod(shortcut_path, 0o755)
-                self.log.debug(f"Created desktop shortcut: {shortcut_path}")
+                # self.log.debug(f"Created desktop shortcut: {shortcut_path}")
         except Exception as e:
-            self.log.debug(f"Failed to create desktop shortcut: {e}")
-    
+            # self.log.debug(f"Failed to create desktop shortcut: {e}")
+            pass
+
     def ensure_mount_point(self, desired_mount):
         """Ensure Google Drive is mounted at the desired location on Linux"""
         # Find actual Google Drive mount point
@@ -628,12 +629,12 @@ Icon=folder-google-drive
             
         # Check if the desired mount already exists correctly
         if os.path.normpath(googledrive_path) == os.path.normpath(desired_mount):
-            self.log.debug(f"Google Drive already mounted at desired location: {desired_mount}")
+            # self.log.debug(f"Google Drive already mounted at desired location: {desired_mount}")
             return True
             
         # Check if symlink exists and points to the right place
         if os.path.islink(desired_mount) and os.readlink(desired_mount) == googledrive_path:
-            self.log.debug(f"Symlink already exists: {desired_mount} -> {googledrive_path}")
+            # self.log.debug(f"Symlink already exists: {desired_mount} -> {googledrive_path}")
             return True
             
         # Create symlink if it doesn't exist or points elsewhere
@@ -665,7 +666,7 @@ Icon=folder-google-drive
                     
             # Create the symlink
             os.symlink(googledrive_path, desired_mount)
-            self.log.debug(f"Created symlink: {desired_mount} -> {googledrive_path}")
+            # self.log.debug(f"Created symlink: {desired_mount} -> {googledrive_path}")
             return True
             
         except Exception as e:
@@ -692,7 +693,7 @@ Icon=folder-google-drive
     def show_admin_instructions(self, source_path, target_path):
         """Show instructions for operations requiring admin privileges"""
         command = f"sudo ln -sf '{source_path}' '{target_path}'"
-        self.log.info(f"Admin privileges required. To create the symlink manually: {command}")
+        # self.log.info(f"Admin privileges required. To create the symlink manually: {command}")
         
         message = (
             f"AYON Google Drive requires administrator privileges to create a symlink.\n\n"
@@ -719,8 +720,9 @@ Icon=folder-google-drive
                     subprocess.Popen(["xmessage", "-center", message],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
-            self.log.debug(f"Could not show GUI notification: {e}")
-    
+            # self.log.debug(f"Could not show GUI notification: {e}")
+            pass
+
     def alert_path_in_use(self, path, current_usage, desired_target, mapping_name=None):
         """Alert the user about path conflicts"""
         # Get suggestions for alternative paths
@@ -791,8 +793,9 @@ Icon=folder-google-drive
                     "zenity", "--warning", "--text", message, "--title", title, "--width", "400"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
-            self.log.debug(f"Could not show detailed conflict dialog: {e}")
-    
+            # self.log.debug(f"Could not show detailed conflict dialog: {e}")
+            pass
+
     def remove_all_mappings(self):
         """Remove all symlink mappings created by AYON"""
         try:
@@ -808,7 +811,7 @@ Icon=folder-google-drive
             for mapping in mappings:
                 target = mapping.get("linux_target", "")
                 if target and os.path.exists(target) and os.path.islink(target):
-                    self.log.debug(f"Removing symlink: {target}")
+                    # self.log.debug(f"Removing symlink: {target}")
                     try:
                         os.unlink(target)
                         

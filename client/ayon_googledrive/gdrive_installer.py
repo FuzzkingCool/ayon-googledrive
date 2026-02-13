@@ -81,16 +81,16 @@ class GDriveInstaller:
         
         # Download the file if it doesn't exist
         if not os.path.exists(installer_path):
-            log.debug(f"Downloading Google Drive installer from {url}")
+            # log.debug(f"Downloading Google Drive installer from {url}")
             try:
                 urllib.request.urlretrieve(url, installer_path)
-                log.debug(f"Downloaded installer to {installer_path}")
+                # log.debug(f"Downloaded installer to {installer_path}")
                 return installer_path
             except Exception as e:
                 log.error(f"Failed to download Google Drive installer: {e}")
                 return None
         else:
-            log.debug(f"Using existing installer at {installer_path}")
+            # log.debug(f"Using existing installer at {installer_path}")
             return installer_path
 
     def cleanup(self):
@@ -99,13 +99,13 @@ class GDriveInstaller:
             try:
                 shutil.rmtree(self._temp_dir)
                 self._temp_dir = None
-                self.log.debug("Temporary installation files cleaned up")
+                # self.log.debug("Temporary installation files cleaned up")
             except Exception as e:
                 self.log.error(f"Error cleaning up temporary files: {e}")
 
     def _install_on_macos(self, installer_path):
         """Install Google Drive on macOS using system GUI prompts"""
-        self.log.debug(f"Installing Google Drive on macOS from {installer_path}")
+        # self.log.debug(f"Installing Google Drive on macOS from {installer_path}")
         
         lock_file = os.path.join(os.path.expanduser("~"), ".ayon_gdrive_installing")
         try:
@@ -117,7 +117,7 @@ class GDriveInstaller:
         mount_point = None
         try:
             # Mount DMG
-            self.log.debug(f"Mounting DMG: {installer_path}")
+            # self.log.debug(f"Mounting DMG: {installer_path}")
             mount_process = run_process(["hdiutil", "attach", installer_path])
             if not mount_process or mount_process.returncode != 0:
                 self.log.error("Failed to mount Google Drive disk image")
@@ -144,7 +144,7 @@ class GDriveInstaller:
                     os.remove(lock_file)
                 return False
                 
-            self.log.debug(f"DMG mounted at: {mount_point}")
+            # self.log.debug(f"DMG mounted at: {mount_point}")
                 
             # Find the .pkg file
             pkg_file = None
@@ -160,7 +160,7 @@ class GDriveInstaller:
                     os.remove(lock_file)
                 return False
                 
-            self.log.debug(f"Found installer package at: {pkg_file}")
+            # self.log.debug(f"Found installer package at: {pkg_file}")
             
             # Use AppleScript for system authentication dialog
             applescript = f'''
@@ -186,11 +186,11 @@ class GDriveInstaller:
                 f.write(applescript)
                 
             # Run the AppleScript
-            self.log.debug("Running installer with system authentication dialog")
+            # self.log.debug("Running installer with system authentication dialog")
             install_result = run_process(["osascript", script_path])
             
             if install_result and install_result.returncode == 0:
-                self.log.info(f"Installation result: {install_result.stdout}")
+                # self.log.info(f"Installation result: {install_result.stdout}")
                 success = "failed" not in install_result.stdout.lower() and "cancelled" not in install_result.stdout.lower()
             else:
                 self.log.error(f"Installation script error: {install_result.stderr if install_result else 'Unknown error'}")

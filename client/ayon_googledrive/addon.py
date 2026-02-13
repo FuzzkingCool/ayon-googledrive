@@ -70,7 +70,8 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 # Setup drive mappings automatically if Google Drive is running and logged in
                 self._gdrive_manager.ensure_consistent_paths()
         else:
-            log.debug("Google Drive is not installed - skipping automatic start and mapping")
+            # log.debug("Google Drive is not installed - skipping automatic start and mapping")
+            pass
 
     def _delayed_mapping_setup(self):
         """Wait for Google Drive to start and then set up mappings."""
@@ -85,12 +86,12 @@ class GDriveAddon(AYONAddon, ITrayAddon):
   
             # Now check if user is logged in and set up mappings if so
             if self._gdrive_manager.is_user_logged_in():
-                log.debug("Google Drive has started - setting up drive mappings")
+                # log.debug("Google Drive has started - setting up drive mappings")
                 self._setup_drive_mappings()
                 # No need for a separate thread to verify mappings
             else:
-                log.debug("Google Drive has started but no user is logged in - Please log in with your email.")
-                
+                # log.debug("Google Drive has started but no user is logged in - Please log in with your email.")
+                pass
         except Exception as e:
             log.error(f"Error in delayed mapping setup: {e}", exc_info=True)
 
@@ -104,7 +105,8 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 if self._gdrive_manager.os_type == "Windows":
                     target = mapping.get("windows_target", "")
                     if target and os.path.exists(target):
-                        log.debug(f"Verified mapping exists: {name} at {target}")
+                        # log.debug(f"Verified mapping exists: {name} at {target}")
+                        pass
                     else:
                         log.warning(f"Mapping doesn't exist: {name} at {target}")
         
@@ -127,11 +129,12 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 return
                 
             # Set up all mappings
-            log.debug("Setting up Google Drive mappings automatically")
+            # log.debug("Setting up Google Drive mappings automatically")
             result = self._gdrive_manager.ensure_consistent_paths()
             
             if result:
-                log.debug("Successfully set up all Google Drive mappings")
+                # log.debug("Successfully set up all Google Drive mappings")
+                pass
             else:
                 log.warning("Some Google Drive mappings could not be set up automatically")
                 
@@ -168,11 +171,12 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 # Update the submenu status without opening the menu
                 self._update_submenu_status(self._menu)
         except Exception as e:
-            log.debug(f"Error in periodic status update: {e}")
+            # log.debug(f"Error in periodic status update: {e}")
+            pass
 
     def tray_exit(self):
         """Cleanup when tray is closing."""
-        log.debug("Cleaning up Google Drive addon")
+        # log.debug("Cleaning up Google Drive addon")
         
         # Stop status update timer if running
         if hasattr(self, '_status_update_timer'):
@@ -279,7 +283,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
                 
         except Exception as e:
-            log.debug(f"Error updating submenu status: {e}")
+            # log.debug(f"Error updating submenu status: {e}")
             self._menu_builder._set_menu_status(menu, "Google Drive: Error", "error")
             # Force full menu update to show error details
             QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
@@ -312,7 +316,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
             return True
             
         except Exception as e:
-            log.debug(f"Error in quick mappings check: {e}")
+            # log.debug(f"Error in quick mappings check: {e}")
             return False
 
     def _update_menu(self):
@@ -322,7 +326,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
     def _validate_googledrive(self):
         """Validate Google Drive mounting and paths."""
-        log.debug("Google Drive mount validation starting...")
+        # log.debug("Google Drive mount validation starting...")
 
         # Check if Google Drive is installed
         if not self._gdrive_manager.is_googledrive_installed():
@@ -357,12 +361,12 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         show_notification("Google Drive paths validated",
                           "Google Drive paths have been validated successfully.")
         
-        log.debug("Google Drive paths validated successfully")
+        # log.debug("Google Drive paths validated successfully")
         return True
 
     def _install_googledrive(self):
         """Install Google Drive if not present."""
-        log.debug("Attempting to install Google Drive")
+        # log.debug("Attempting to install Google Drive")
 
         # Check if already installed
         if self._gdrive_manager.is_googledrive_installed():
@@ -384,7 +388,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
     def _start_googledrive(self):
         """Start Google Drive application with proper waiting."""
-        log.debug("Attempting to start Google Drive")
+        # log.debug("Attempting to start Google Drive")
         
         if self._gdrive_manager.is_googledrive_running():
             show_notification("Google Drive already running",
@@ -428,7 +432,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         
         while time.time() - start_time < timeout:
             if self._gdrive_manager.is_googledrive_mounted():
-                self.log.debug("Google Drive mounted, setting up mappings")
+                # self.log.debug("Google Drive mounted, setting up mappings")
                 self._gdrive_manager.ensure_consistent_paths()
                 return
             time.sleep(1)
@@ -444,7 +448,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         import threading
         
         if self._monitor_thread is not None and self._monitor_thread.is_alive():
-            log.debug("Monitoring thread already running")
+            # log.debug("Monitoring thread already running")
             return
 
         self._monitoring = True
@@ -456,15 +460,16 @@ class GDriveAddon(AYONAddon, ITrayAddon):
     def _stop_monitoring(self):
         """Stop background monitoring."""
         if self._monitor_thread and self._monitor_thread.is_alive():
-            log.debug("Stopping Google Drive monitoring thread")
+            # log.debug("Stopping Google Drive monitoring thread")
             # Thread will terminate on its own at next check interval
             # since we set self._monitoring = False
             self._monitor_thread.join(timeout=5)  # Wait for thread to finish
 
             # Check if the thread is 
-            log.debug("Google Drive monitoring thread stopped")
+            # log.debug("Google Drive monitoring thread stopped")
         else:
-            log.debug("No monitoring thread to stop")
+            # log.debug("No monitoring thread to stop")
+            pass
         # Clean up the thread reference
         self._monitor_thread = None
         self._monitoring = False
@@ -664,12 +669,12 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
             for _ in range(check_interval):
                 if not self._monitoring:
-                    log.debug("Monitoring flag turned off, exiting loop")
+                    # log.debug("Monitoring flag turned off, exiting loop")
                     break
                 time.sleep(1)
                 
 
-        log.debug("Google Drive monitoring thread exiting")
+        # log.debug("Google Drive monitoring thread exiting")
 
     def _show_direct_notification(self, title, message, level="info"):
         """Show notification with guaranteed visibility using multiple methods"""
@@ -701,7 +706,8 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                         icon, 0, 5000  # 5 seconds timeout
                     )
                 except Exception as e:
-                    log.debug(f"Direct Windows notification failed: {e}")
+                    # log.debug(f"Direct Windows notification failed: {e}")
+                    pass
         except Exception as e:
             log.error(f"Failed to show important notification: {e}")
             # Last resort - print to console
@@ -766,7 +772,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
     def _gdrive_installer_completed(self):
         """Called when Google Drive installer completes"""
-        self.log.debug("Google Drive installation completed, updating menu")
+        # self.log.debug("Google Drive installation completed, updating menu")
         # Force status refresh and menu update after a short delay
         # to allow Google Drive to start up
         from qtpy.QtCore import QTimer

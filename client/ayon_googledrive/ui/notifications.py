@@ -57,7 +57,8 @@ def show_notification(
     elif level == "warning":
         log.warning(full_message)
     else:
-        log.info(full_message)
+        # log.info(full_message)
+        pass
 
     # Set default icon if not provided
     if icon_path is None:

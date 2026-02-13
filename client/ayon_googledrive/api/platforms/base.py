@@ -43,29 +43,26 @@ class GDrivePlatformBase:
         if not self.log.isEnabledFor(logging.DEBUG):
             return
             
-        self.log.debug("=== DEBUG: Complete Settings Structure ===")
-        if self.settings:
-            self.log.debug(f"Settings type: {type(self.settings)}")
-            self.log.debug(f"Settings keys: {list(self.settings.keys())}")
-            
-            if "localization" in self.settings:
-                localization = self.settings["localization"]
-                self.log.debug(f"Localization type: {type(localization)}")
-                self.log.debug(f"Localization keys: {list(localization.keys())}")
-                
-                if "shared_drive_names" in localization:
-                    shared_drive_names = localization["shared_drive_names"]
-                    self.log.debug(f"shared_drive_names type: {type(shared_drive_names)}")
-                    self.log.debug(f"shared_drive_names value: {shared_drive_names}")
-                    
-                    if isinstance(shared_drive_names, list):
-                        for i, item in enumerate(shared_drive_names):
-                            self.log.debug(f"Item {i}: {item} (type: {type(item)})")
-                            if isinstance(item, dict):
-                                self.log.debug(f"  Item {i} keys: {list(item.keys())}")
-        else:
-            self.log.debug("No settings available")
-        self.log.debug("=== END DEBUG ===")
+        # self.log.debug("=== DEBUG: Complete Settings Structure ===")
+        # if self.settings:
+        #     self.log.debug(f"Settings type: {type(self.settings)}")
+        #     self.log.debug(f"Settings keys: {list(self.settings.keys())}")
+        #     if "localization" in self.settings:
+        #         localization = self.settings["localization"]
+        #         self.log.debug(f"Localization type: {type(localization)}")
+        #         self.log.debug(f"Localization keys: {list(localization.keys())}")
+        #         if "shared_drive_names" in localization:
+        #             shared_drive_names = localization["shared_drive_names"]
+        #             self.log.debug(f"shared_drive_names type: {type(shared_drive_names)}")
+        #             self.log.debug(f"shared_drive_names value: {shared_drive_names}")
+        #             if isinstance(shared_drive_names, list):
+        #                 for i, item in enumerate(shared_drive_names):
+        #                     self.log.debug(f"Item {i}: {item} (type: {type(item)})")
+        #                     if isinstance(item, dict):
+        #                         self.log.debug(f"  Item {i} keys: {list(item.keys())}")
+        # else:
+        #     self.log.debug("No settings available")
+        # self.log.debug("=== END DEBUG ===")
 
     def _get_shared_drives_names(self):
         """Get shared drive names from settings or use defaults with caching"""
@@ -110,7 +107,7 @@ class GDrivePlatformBase:
                             # Cache the result
                             self._shared_drives_names_cache = names
                             self._cache_timestamp = current_time
-                            self.log.debug(f"Extracted {len(names)} shared drive names from settings: {names}")
+                            # self.log.debug(f"Extracted {len(names)} shared drive names from settings: {names}")
                             return names
                         else:
                             self.log.warning("No shared drive names extracted from settings")
@@ -126,7 +123,7 @@ class GDrivePlatformBase:
         # Fallback to default names
         self._shared_drives_names_cache = self.default_shared_drives_names
         self._cache_timestamp = current_time
-        self.log.debug(f"Using default shared drive names: {self.default_shared_drives_names}")
+        # self.log.debug(f"Using default shared drive names: {self.default_shared_drives_names}")
         return self.default_shared_drives_names
     
     def clear_shared_drives_cache(self):
@@ -262,10 +259,9 @@ class GDrivePlatformBase:
         """Debug method to show all paths being checked for Google Drive and shared drives"""
         # Get system language info
         lang_info = self.get_system_language_info()
-        self.log.info(f"Platform: {lang_info['system_platform']} {lang_info['system_release']}, Locale: {lang_info['locale_display']}, Encoding: {lang_info['encoding_display']}")
-        
+        # self.log.info(f"Platform: {lang_info['system_platform']} {lang_info['system_release']}, Locale: {lang_info['locale_display']}, Encoding: {lang_info['encoding_display']}")
         # Get shared drive names
         shared_names = self._get_shared_drives_names()
-        self.log.info(f"Checking {len(shared_names)} shared drive name variants")
+        # self.log.info(f"Checking {len(shared_names)} shared drive name variants")
         
         # Platform-specific path checking will be implemented in subclasses

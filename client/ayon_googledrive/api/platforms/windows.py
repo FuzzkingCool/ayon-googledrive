@@ -33,7 +33,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         """Check if Google Drive is installed on Windows by checking for the executable in the latest versioned folder."""
         exe_path = self._get_configured_executable_path()
         if exe_path and os.path.isfile(exe_path):
-            self.log.debug(f"Found Google Drive executable at: {exe_path}")
+            # self.log.debug(f"Found Google Drive executable at: {exe_path}")
             return True
         self.log.error(f"Google Drive executable not found at any versioned folder. Last checked: {exe_path}")
         return False
@@ -43,7 +43,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         try:
             result = run_process(["tasklist", "/FI", "IMAGENAME eq GoogleDriveFS.exe"], check=False)
             if result and "GoogleDriveFS.exe" in result.stdout:
-                self.log.debug("Google Drive process is running")
+                # self.log.debug("Google Drive process is running")
                 return True
             return False
         except Exception as e:
@@ -69,11 +69,9 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
     
     def find_googledrive_mount(self):
         """Find the actual Google Drive mount point on Windows"""
-        self.log.debug("Finding Google Drive mount point on Windows")
-        
-        # Check for Shared drives folder on any drive letter using localized names
+        # self.log.debug("Finding Google Drive mount point on Windows")
         shared_drives_names = self._get_shared_drives_names()
-        self.log.debug(f"Windows: Checking for shared drive names: {shared_drives_names}")
+        # self.log.debug(f"Windows: Checking for shared drive names: {shared_drives_names}")
         
         for drive_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
             drive_root = f"{drive_letter}:\\"
@@ -94,7 +92,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             drive_exe_path = self._find_googledrive_executable()
             
             if drive_exe_path and os.path.exists(drive_exe_path):
-                self.log.info(f"Starting Google Drive from: {drive_exe_path}")
+                # self.log.info(f"Starting Google Drive from: {drive_exe_path}")
                 
                 # Create startupinfo to hide window
                 startupinfo = subprocess.STARTUPINFO()
@@ -119,7 +117,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         """Return the Google Drive executable path, or None if not found."""
         exe_path = self._get_configured_executable_path()
         if exe_path and os.path.isfile(exe_path):
-            self.log.debug(f"Found Google Drive executable: {exe_path}")
+            # self.log.debug(f"Found Google Drive executable: {exe_path}")
             return exe_path
         self.log.error(f"Google Drive executable not found at any versioned folder. Last checked: {exe_path}")
         return None
@@ -159,12 +157,12 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                     return exe_path
                 if path.lower().endswith('.exe'):
                     if not hasattr(self, '_logged_executable_path'):
-                        log.debug(f"Using configured Google Drive path: {path}")
+                        # log.debug(f"Using configured Google Drive path: {path}")
                         self._logged_executable_path = path
                     return path
                 candidate = os.path.join(path, "GoogleDriveFS.exe")
                 if not hasattr(self, '_logged_executable_path'):
-                    log.debug(f"Using configured Google Drive folder: {candidate}")
+                    # log.debug(f"Using configured Google Drive folder: {candidate}")
                     self._logged_executable_path = candidate
                 return candidate
         # Default: find latest versioned folder
@@ -187,7 +185,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         log.debug(f"Found Google Drive versioned folders: {[v[0] for v in version_dirs]}")
         latest_version_dir = version_dirs[0][1]
         exe_path = os.path.join(latest_version_dir, "GoogleDriveFS.exe")
-        log.debug(f"Using Google Drive executable from latest versioned folder: {exe_path}")
+        # log.debug(f"Using Google Drive executable from latest versioned folder: {exe_path}")
         return exe_path
     
     def find_source_path(self, relative_path):
@@ -217,7 +215,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                     potential_shared_drives_folder = os.path.join(drive_root, sd_name)
                     if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
                         actual_shared_drives_name = sd_name
-                        self.log.debug(f"Windows: Found actual shared drives folder: {sd_name} in {drive_root}")
+                        # self.log.debug(f"Windows: Found actual shared drives folder: {sd_name} in {drive_root}")
                         break
                 if actual_shared_drives_name:
                     break
@@ -226,7 +224,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 # Replace "Shared drives" or "Shared Drives" with the actual localized name
                 clean_path = clean_path.replace("Shared drives", actual_shared_drives_name)
                 clean_path = clean_path.replace("Shared Drives", actual_shared_drives_name)
-                self.log.debug(f"Windows: Replaced 'Shared drives' with '{actual_shared_drives_name}' in path: {clean_path}")
+                # self.log.debug(f"Windows: Replaced 'Shared drives' with '{actual_shared_drives_name}' in path: {clean_path}")
             else:
                 self.log.warning("Windows: Could not find any localized shared drives folder on the system")
         
@@ -234,7 +232,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         drive_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         found_drive_bases = []
         
-        self.log.debug(f"Windows: Looking for source path: '{clean_path}'")
+        # self.log.debug(f"Windows: Looking for source path: '{clean_path}'")
 
         for drive_letter in drive_letters:
             drive_root = f"{drive_letter}:\\"
@@ -243,13 +241,12 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
 
             # Check for any of the internationalized "Shared Drives" names
             shared_drives_names = self._get_shared_drives_names()
-            self.log.debug(f"Windows: Checking drive {drive_letter}: with shared drive names: {shared_drives_names}")
-            
+            # self.log.debug(f"Windows: Checking drive {drive_letter}: with shared drive names: {shared_drives_names}")
             for sd_name in shared_drives_names:
                 potential_shared_drives_folder = os.path.join(drive_root, sd_name)
-                self.log.debug(f"Windows: Testing path: {potential_shared_drives_folder}")
+                # self.log.debug(f"Windows: Testing path: {potential_shared_drives_folder}")
                 if os.path.exists(potential_shared_drives_folder) and os.path.isdir(potential_shared_drives_folder):
-                    self.log.debug(f"Windows: Found shared drives folder: {potential_shared_drives_folder}")
+                    # self.log.debug(f"Windows: Found shared drives folder: {potential_shared_drives_folder}")
                     found_drive_bases.append(potential_shared_drives_folder)
                     
                     # Check if this is the My Drive folder as well
@@ -263,13 +260,13 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         if not found_drive_bases and any(name in clean_path for name in self._get_shared_drives_names()):
             # If we expected a shared drive path but found no "Shared Drives" folders
             self.log.error(f"Windows: Could not find any 'Shared Drives' folder. Cannot locate: {clean_path}")
-            self.log.info("Windows: This could indicate Google Drive is not mounted or using different localized names")
+            # self.log.info("Windows: This could indicate Google Drive is not mounted or using different localized names")
             return None
         elif not found_drive_bases:
             self.log.error(f"Windows: Could not find any Google Drive mount point. Cannot locate: {clean_path}")
             return None
         
-        self.log.debug(f"Windows: Found drive bases: {found_drive_bases}")
+        # self.log.debug(f"Windows: Found drive bases: {found_drive_bases}")
 
         # Deduplicate and prioritize user override if it exists and is a shared drive base
         unique_bases = []
@@ -320,20 +317,20 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                         else:
                             path_variant = os.path.join(base_path_to_search, sd_name)
                         if os.path.exists(path_variant):
-                            self.log.debug(f"Windows: Found source path: {path_variant}")
+                            # self.log.debug(f"Windows: Found source path: {path_variant}")
                             return path_variant
             else:
                 # This is a regular path (not a shared drive path)
                 # Try direct path first
                 path_variant = os.path.join(base_path_to_search, clean_path.lstrip('\\/'))
                 if os.path.exists(path_variant):
-                    self.log.debug(f"Windows: Found source path: {path_variant}")
+                    # self.log.debug(f"Windows: Found source path: {path_variant}")
                     return path_variant
                 
                 # Try with "My Drive" prefix
                 my_drive_path_variant = os.path.join(base_path_to_search, "My Drive", clean_path.lstrip('\\/'))
                 if os.path.exists(my_drive_path_variant):
-                    self.log.debug(f"Windows: Found source path: {my_drive_path_variant}")
+                    # self.log.debug(f"Windows: Found source path: {my_drive_path_variant}")
                     return my_drive_path_variant
 
         self.log.error(f"Windows: Could not locate path '{clean_path}' in any derived Google Drive locations.")
@@ -384,7 +381,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         
         drive_letter = target_path[0]
         
-        self.log.info(f"Creating mapping: {drive_letter}: -> {source_path}")
+        # self.log.info(f"Creating mapping: {drive_letter}: -> {source_path}")
         
         # Check if target drive letter already exists
         # Note: os.path.exists() might return False for network drives that aren't accessible
@@ -402,10 +399,10 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 
                 if wmic_result and wmic_result.stdout and f"{drive_letter.upper()}:" in wmic_result.stdout.upper():
                     drive_exists = True
-                    self.log.debug(f"Drive {drive_letter}: detected via wmic even though not accessible via os.path.exists")
+                    # self.log.debug(f"Drive {drive_letter}: detected via wmic even though not accessible via os.path.exists")
             except Exception as e:
-                self.log.debug(f"Could not check drive existence via wmic: {e}")
-        
+                # self.log.debug(f"Could not check drive existence via wmic: {e}")
+                pass
         if drive_exists:
             try:
                 # First check if it's a SUBST mapping
@@ -419,7 +416,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                             break
                     
                     if existing_mapping == source_path:
-                        self.log.info(f"Drive {drive_letter}: is already mapped to {source_path}")
+                        # self.log.info(f"Drive {drive_letter}: is already mapped to {source_path}")
                         return True
                     else:
                         self.log.warning(f"Drive {drive_letter}: is already mapped via SUBST to {existing_mapping}. Cannot create AYON mapping to {source_path}")
@@ -452,7 +449,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                                             existing_mapping = f"{type_names.get(drive_type, f'Type {drive_type}')}"
                                         break
                     except Exception as wmic_error:
-                        self.log.debug(f"Could not get drive info via wmic: {wmic_error}")
+                        # self.log.debug(f"Could not get drive info via wmic: {wmic_error}")
                         existing_mapping = "Unknown drive mapping"
                     
                     if existing_mapping:
@@ -479,7 +476,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             )
             
             if result.returncode == 0:
-                self.log.info(f"Successfully mapped drive {drive_letter}: to {source_path}")
+                # self.log.info(f"Successfully mapped drive {drive_letter}: to {source_path}")
                 return True
             else:
                 error_msg = result.stderr.strip() if result.stderr else f"Return code: {result.returncode}"
@@ -518,8 +515,8 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                         self.alert_drive_in_use(drive_letter, existing_mapping, source_path)
                         return False
                     except Exception as check_error:
-                        self.log.debug(f"Could not determine what's using drive {drive_letter}: {check_error}")
-                
+                        # self.log.debug(f"Could not determine what's using drive {drive_letter}: {check_error}")
+                        pass
                 self.log.error(f"Failed to create drive mapping. Error: {error_msg}")
                 return False
         except Exception as e:
@@ -537,7 +534,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 shared_drive_path = f"{drive_letter}:\\{shared_drives_name}"
                 if os.path.exists(shared_drive_path):
                     current_mount = f"{drive_letter}:"
-                    self.log.debug(f"Found Google Drive at {current_mount} with shared drives folder: {shared_drives_name}")
+                    # self.log.debug(f"Found Google Drive at {current_mount} with shared drives folder: {shared_drives_name}")
                     break
             if current_mount:
                 break
@@ -552,7 +549,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         
         # If drive already at desired letter, all good
         if current_mount == desired_mount:
-            self.log.debug(f"Google Drive already mounted at {desired_mount}")
+            # self.log.debug(f"Google Drive already mounted at {desired_mount}")
             return True
         
         show_notifications = self.settings.get("show_mount_mismatch_notifications", False)
@@ -593,8 +590,9 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         try:
             ctypes.windll.user32.MessageBoxW(0, message, "AYON Google Drive - Drive Conflict", 0x30)  # Warning icon
         except Exception as e:
-            self.log.debug(f"Could not show GUI alert: {e}")
-            
+            # self.log.debug(f"Could not show GUI alert: {e}")
+            pass
+
     def _get_available_drive_letters(self):
         """Get list of available drive letters"""
         available = []
@@ -616,7 +614,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             for line in result.stdout.splitlines():
                 if '=>' in line:
                     drive_letter = line.split(':')[0].strip()
-                    self.log.info(f"Removing SUBST mapping for {drive_letter}:")
+                    # self.log.info(f"Removing SUBST mapping for {drive_letter}:")
                     
                     # Run SUBST /D to delete the mapping
                     subprocess.run(
@@ -683,14 +681,15 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             f"subst {drive_letter}: \"{source_path}\""
         )
         
-        self.log.info(f"Admin instructions: {message}")
+        # self.log.info(f"Admin instructions: {message}")
         
         # Try to show a GUI message
         try:
             ctypes.windll.user32.MessageBoxW(0, message, "Google Drive - Administrator Required", 0x40)
         except Exception as e:
-            self.log.debug(f"Could not show GUI message: {e}")
-            
+            # self.log.debug(f"Could not show GUI message: {e}")
+            pass
+
     def install_googledrive(self, installer_path):
         """Install Google Drive on Windows, with user notification and install-in-progress flag."""
         from ayon_googledrive.ui.notifications import show_notification
@@ -712,7 +711,7 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                 unique_id="gdrive_install_start"
             )
             self.set_installing(True)
-            self.log.info(f"Running Google Drive installer: {installer_path}")
+            # self.log.info(f"Running Google Drive installer: {installer_path}")
             try:
                 process = subprocess.Popen(
                     [installer_path],
@@ -720,19 +719,20 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                     stderr=subprocess.PIPE,
                     shell=True
                 )
-                self.log.info("Installer process started, waiting for completion...")
+                # self.log.info("Installer process started, waiting for completion...")
                 stdout, stderr = process.communicate(timeout=300)
                 return_code = process.returncode
                 if stdout:
-                    self.log.info(f"Installer stdout: {stdout.decode('utf-8', errors='ignore')}")
+                    # self.log.info(f"Installer stdout: {stdout.decode('utf-8', errors='ignore')}")
+                    pass
                 if stderr:
                     self.log.error(f"Installer stderr: {stderr.decode('utf-8', errors='ignore')}")
-                self.log.info(f"Installer return code: {return_code}")
+                # self.log.info(f"Installer return code: {return_code}")
                 if return_code == 0:
-                    self.log.info("Google Drive installer completed successfully")
+                    # self.log.info("Google Drive installer completed successfully")
                     time.sleep(2)
                     if self.is_googledrive_installed():
-                        self.log.info("Installation verification passed")
+                        # self.log.info("Installation verification passed")
                         self.set_installing(False)
                         return True
                     else:
@@ -808,10 +808,12 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
                     existing_paths.append(full_path)
         
         if existing_paths:
-            self.log.info(f"Found {len(existing_paths)} existing shared drive folders")
-            for path in existing_paths[:5]:  # Limit to first 5
-                self.log.info(f"  ✓ {path}")
-            if len(existing_paths) > 5:
-                self.log.info(f"  ... and {len(existing_paths) - 5} more")
+            # self.log.info(f"Found {len(existing_paths)} existing shared drive folders")
+            # for path in existing_paths[:5]:
+            #     self.log.info(f"  ✓ {path}")
+            # if len(existing_paths) > 5:
+            #     self.log.info(f"  ... and {len(existing_paths) - 5} more")
+            pass
         else:
-            self.log.info("No existing shared drive folders found")
+            # self.log.info("No existing shared drive folders found")
+            pass
