@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import platform
-import sys
 import threading
 import time
 
@@ -197,11 +196,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         if self._notification_thread:
             self._notification_thread.join()
             self._notification_thread = None
-        
-        # Exit the application
-        if self.settings.get("keep_symlinks_on_exit"):
-            sys.exit(0)
- 
+
     # Definition of Tray menu
     def tray_menu(self, tray_menu):
         """Add Google Drive menu to tray."""
