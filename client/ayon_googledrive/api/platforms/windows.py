@@ -80,9 +80,8 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
             for sd_name in shared_drives_names:
                 shared_drives_path = os.path.join(drive_root, sd_name)
                 if os.path.exists(shared_drives_path) and os.path.isdir(shared_drives_path):
-                    # self.log.debug(f"Found Google Drive mount point: {drive_letter}:\\ (with shared drives: {sd_name})")
                     return f"{drive_letter}:\\"
-        
+
         self.log.warning("Could not find Google Drive mount point")
         return None
     
@@ -182,7 +181,6 @@ class GDriveWindowsPlatform(GDrivePlatformBase):
         def version_key(v):
             return [int(x) for x in v[0].split('.')]
         version_dirs.sort(key=version_key, reverse=True)
-        log.debug(f"Found Google Drive versioned folders: {[v[0] for v in version_dirs]}")
         latest_version_dir = version_dirs[0][1]
         exe_path = os.path.join(latest_version_dir, "GoogleDriveFS.exe")
         # log.debug(f"Using Google Drive executable from latest versioned folder: {exe_path}")

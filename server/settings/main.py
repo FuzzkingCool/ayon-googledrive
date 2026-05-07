@@ -1,8 +1,35 @@
 # -*- coding: utf-8 -*-
-from typing import List
+from typing import Any, List
 
-# from pydantic import Field, validator
+from pydantic import root_validator
+
+from ayon_server.lib.postgres import Postgres
 from ayon_server.settings import BaseSettingsModel, SettingsField
+
+
+async def _access_groups_enum() -> list[dict[str, str]]:
+    """Populate Access Groups multi-select from Permissions access groups."""
+    rows = await Postgres.fetch(
+        "SELECT name FROM public.access_groups ORDER BY name"
+    )
+    return [{"value": r["name"], "label": r["name"]} for r in rows]
+
+
+_MAPPING_TARGET_FIELDS = ("windows_target", "macos_target", "linux_target")
+
+
+def _norm_mapping_target(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _mapping_row_dict(m: Any) -> dict[str, Any]:
+    if isinstance(m, dict):
+        return m
+    if hasattr(m, "dict"):
+        return m.dict()
+    return dict(m)
 
 # AYON Addon settings for Google Drive integration
  
@@ -45,14 +72,16 @@ DEFAULT_GDRIVE_SETTINGS = {
             "source_path": "Shared drives\\Projects",
             "windows_target": "P:\\",
             "macos_target": "/Volumes/Projects",
-            "linux_target": "/mnt/projects"
+            "linux_target": "/mnt/projects",
+            "access_groups": [],
         },
         {
             "name": "Renders",
             "source_path": "Shared drives\\Renders",
             "windows_target": "R:\\",
             "macos_target": "/Volumes/Renders",
-            "linux_target": "/mnt/renders"
+            "linux_target": "/mnt/renders",
+            "access_groups": [],
         }
     ],
     "auto_install_googledrive": False,
@@ -196,8 +225,19 @@ class GDriveMapping(BaseSettingsModel):
         title="Linux Target",
         description="Linux target mount path (e.g. /mnt/projects)"
     )
-    
- 
+
+    access_groups: List[str] = SettingsField(
+        default_factory=list,
+        title="Access Groups",
+        description=(
+            "Restrict this mapping to users who have at least one of these "
+            "AYON access groups in the project. Empty means the mapping is "
+            "hidden from everyone."
+        ),
+        enum_resolver=_access_groups_enum,
+    )
+
+
 class GDriveDownloadUrls(BaseSettingsModel):
     """URLs for downloading Google Drive installers."""
     windows: str = SettingsField(
@@ -282,6 +322,30 @@ class GDriveSettings(BaseSettingsModel):
         title="Google Drive Download URLs",
         description="URLs to download Google Drive installers"
     )
+
+    @root_validator
+    def validate_mapping_targets_unique(cls, values: dict[str, Any]) -> dict[str, Any]:
+        """Each Windows/macOS/Linux target may appear only once per settings doc."""
+        mappings = values.get("mappings") or []
+        for field in _MAPPING_TARGET_FIELDS:
+            seen: dict[str, tuple[str, str]] = {}
+            for idx, raw in enumerate(mappings):
+                m = _mapping_row_dict(raw)
+                tgt = _norm_mapping_target(m.get(field))
+                if not tgt:
+                    continue
+                src = _norm_mapping_target(m.get("source_path"))
+                label = (m.get("name") or "").strip() or f"mapping_{idx}"
+                if tgt in seen:
+                    prev_label, prev_src = seen[tgt]
+                    raise ValueError(
+                        f'Drive mapping "{field}" value "{tgt}" is already used by '
+                        f'"{prev_label}" (source "{prev_src}") and cannot be reused '
+                        f'by "{label}" (source "{src}"). Each mount target must be '
+                        f"unique within one project's googledrive settings."
+                    )
+                seen[tgt] = (label, src)
+        return values
 
 
 

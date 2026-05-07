@@ -13,13 +13,21 @@ class GDriveManager():
     This class delegates platform-specific operations to the appropriate platform handler.
     """
 
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, effective_mappings=None):
         """Initialize the GDrive Manager.
 
         Args:
             settings (dict, optional): Settings dictionary for Google Drive.
+            effective_mappings (list, optional): Resolved mappings for the current user.
+                When provided, replaces ``settings['mappings']`` for all operations.
         """
-        self.settings = settings
+        self.settings = dict(settings) if settings else {}
+        self._effective_mappings = (
+            list(effective_mappings)
+            if effective_mappings is not None
+            else list(self.settings.get("mappings") or [])
+        )
+        self.settings["mappings"] = list(self._effective_mappings)
         self.log = log
 
         # Detect the platform and initialize the appropriate handler
@@ -37,6 +45,23 @@ class GDriveManager():
         else:
             self.log.error(f"Unsupported platform: {self.os_type}")
             raise NotImplementedError(f"Google Drive integration is not implemented for {self.os_type}")
+
+    @property
+    def platform(self) -> str:
+        """Lowercase key suffix for platform-specific mapping fields."""
+        if self.os_type == "Windows":
+            return "windows"
+        if self.os_type == "Darwin":
+            return "macos"
+        return "linux"
+
+    def refresh_status(self) -> None:
+        """Hook for UI refresh; reserved for future cache invalidation."""
+        return
+
+    def get_mappings(self):
+        """Drive mappings used for mounting (access-group filtered)."""
+        return self._get_mappings()
 
     def is_googledrive_installed(self):
         """Check if Google Drive for Desktop is installed"""
@@ -186,9 +211,7 @@ class GDriveManager():
 
     def _get_mappings(self):
         """Get configured drive mappings from settings"""
-        mappings = self.settings.get("mappings", [])
-        # self.log.debug(f"Retrieved mappings from settings: {len(mappings) if mappings else 0} mappings found")
-        return mappings
+        return list(self._effective_mappings)
 
     def _get_desired_mount(self):
         """Get the desired mount point for this platform"""
@@ -240,29 +263,20 @@ class GDriveManager():
         # Use the platform handler to find the actual mount point
         actual_mount = self.platform_handler.find_googledrive_mount()
         if actual_mount:
-            # self.log.debug(f"Found Google Drive mount point: {actual_mount}")
             return True
-            
+
         # Fallback to checking the configured mount point
         desired_mount = self._get_desired_mount()
         if not desired_mount:
-            # self.log.debug("No desired mount point configured")
             return False
 
         if self.os_type == "Windows":
-            exists = os.path.exists(desired_mount)
-            # self.log.debug(f"Windows mount point {desired_mount} exists: {exists}")
-            return exists
+            return os.path.exists(desired_mount)
         elif self.os_type == "Darwin":
-            exists = os.path.exists(desired_mount)
-            # self.log.debug(f"macOS mount point {desired_mount} exists: {exists}")
-            return exists
+            return os.path.exists(desired_mount)
         elif self.os_type == "Linux":
-            exists = os.path.exists(desired_mount)
-            # self.log.debug(f"Linux mount point {desired_mount} exists: {exists}")
-            return exists
+            return os.path.exists(desired_mount)
         else:
-            # self.log.debug(f"Unknown platform: {self.os_type}")
             return False
 
     def debug_localization_info(self):
@@ -283,14 +297,6 @@ class GDriveManager():
                 self.log.warning("No localization settings found")
         else:
             self.log.warning("No settings available")
-        
-        # Get shared drive names from platform handler
-        try:
-            shared_names = self.platform_handler._get_shared_drives_names()
-            # self.log.info(f"Using {len(shared_names)} shared drive name variants")
-            pass
-        except Exception as e:
-            self.log.error(f"Error getting shared drive names: {e}")
         
         # Get system locale
         try:

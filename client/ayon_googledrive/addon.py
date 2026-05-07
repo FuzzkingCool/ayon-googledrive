@@ -7,6 +7,7 @@ import time
 from ayon_core.addon import AYONAddon, ITrayAddon
 from qtpy import QtCore, QtWidgets
 
+from ayon_googledrive.api.effective_mappings import resolve_effective_mappings
 from ayon_googledrive.api.gdrive_manager import GDriveManager
 from ayon_googledrive.logger import log
 from ayon_googledrive.ui.menu_builder import GDriveMenuBuilder
@@ -46,8 +47,19 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         # Use repr() to safely display Unicode characters in settings
         # log.debug(f"Loaded settings: {repr(self.settings)}")
 
+        effective = resolve_effective_mappings(self.name, self.version)
+        self._effective_mappings = effective.mappings
+        self._mapping_conflicts = effective.conflicts
+        self.settings["mappings"] = list(self._effective_mappings)
+
+        merged_settings = dict(self.settings)
+        merged_settings["mappings"] = list(self._effective_mappings)
+
         # Initialize manager service
-        self._gdrive_manager = GDriveManager(self.settings)
+        self._gdrive_manager = GDriveManager(
+            merged_settings,
+            effective_mappings=self._effective_mappings,
+        )
         
         # Debug localization information for troubleshooting
         self._gdrive_manager.debug_localization_info()
@@ -151,6 +163,9 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         
         # Process any queued notifications now that the tray is ready
         process_notification_queue()
+
+        if getattr(self, "_mapping_conflicts", None):
+            QtCore.QTimer.singleShot(3000, self._show_mapping_conflict_dialog)
         
         # Update menu contents now that tray is ready
         QtCore.QTimer.singleShot(2000, self._update_menu)
@@ -283,10 +298,42 @@ class GDriveAddon(AYONAddon, ITrayAddon):
             # Force full menu update to show error details
             QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
     
+    def _show_mapping_conflict_dialog(self):
+        """Modal alert when projects disagree on source_path for the same target."""
+        conflicts = getattr(self, "_mapping_conflicts", None) or []
+        if not conflicts:
+            return
+        lines = [
+            "Google Drive mapping conflict:",
+            "",
+            "The same mount target is configured with different source paths "
+            "in different projects. These targets will not be mounted.",
+            "",
+        ]
+        for c in conflicts:
+            label = {
+                "windows_target": "Windows target",
+                "macos_target": "macOS target",
+                "linux_target": "Linux target",
+            }.get(c.platform_field, c.platform_field)
+            lines.append(f"{label}: {c.target!r}")
+            for proj, src in c.entries:
+                lines.append(f"    {proj}  ->  {src}")
+            lines.append("")
+        lines.append(
+            "Resolve this in AYON Settings (Studio / per-project) for "
+            "ayon-googledrive, then restart the AYON tray."
+        )
+        QtWidgets.QMessageBox.critical(
+            None,
+            "Google Drive mapping conflict",
+            "\n".join(lines),
+        )
+
     def _check_mappings_quick(self):
         """Quick check of mappings without full validation"""
         try:
-            mappings = self.settings.get("mappings", [])
+            mappings = getattr(self, "_effective_mappings", None) or []
             if not mappings:
                 return True  # No mappings to check
                 
