@@ -25,7 +25,7 @@ package-mode = false
 pyblish = "^1.7.0"
 
 [tool.poetry.group.media.dependencies]
-pillow = "^10.0.0"
+pillow = "^12.2.0"
 
 [tool.poetry.group.pydantic.dependencies]
 pydantic = "^2.11.3"
