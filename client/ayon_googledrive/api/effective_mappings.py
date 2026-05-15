@@ -2,10 +2,13 @@
 """Resolve drive mappings per project for the current user (access groups + conflicts)."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 import ayon_api
+
+_LOG = logging.getLogger(__name__)
 
 _MAPPING_TARGET_FIELDS = ("windows_target", "macos_target", "linux_target")
 
@@ -28,11 +31,12 @@ def _project_access_groups(user_data: dict[str, Any], project_name: str) -> list
     return []
 
 
-def _bypass_access_group_mapping_filter(user_data: dict[str, Any]) -> bool:
-    """True when server-side access group lists do not apply (same as YNPUT backend).
+def _user_has_implicit_all_groups(user_data: dict[str, Any]) -> bool:
+    """True for admin/manager: satisfy non-empty mapping ``access_groups`` without DB lists.
 
-    Admins and managers often have no ``data.accessGroups`` project keys; drive mappings
-    must still resolve so SUBST / path checks can run.
+    Admins and managers often have no ``data.accessGroups`` project keys; they still
+    need project settings fetched so studio overrides apply. Per-mapping visibility
+    still requires non-empty ``access_groups`` on the row; empty list stays hidden.
     """
     return bool(user_data.get("isAdmin") or user_data.get("isManager"))
 
@@ -94,15 +98,25 @@ def resolve_effective_mappings(
         return result
 
     user_data = user.get("data") or {}
-    ag_bypass = _bypass_access_group_mapping_filter(user_data)
+    implicit_all_groups = _user_has_implicit_all_groups(user_data)
+    skipped_no_access_groups = 0
+    skipped_no_role_match = 0
 
     projects = list(ayon_api.get_projects(active=True))
 
-    if ag_bypass:
+    if implicit_all_groups:
         project_names = [p.get("name") for p in projects if p.get("name")]
     else:
         project_names = _match_projects_for_user(projects, user_data)
         if not project_names:
+            _LOG.info(
+                "googledrive effective_mappings: included=%d names=%s "
+                "skipped_no_access_groups_configured=%d skipped_no_role_match=%d",
+                0,
+                [],
+                skipped_no_access_groups,
+                skipped_no_role_match,
+            )
             return result
 
     candidates: list[dict[str, Any]] = []
@@ -123,14 +137,25 @@ def resolve_effective_mappings(
             if not isinstance(raw, dict):
                 continue
             required = set(raw.get("access_groups") or [])
-            if not ag_bypass:
-                if not required.intersection(user_ags):
-                    continue
+            if not required:
+                skipped_no_access_groups += 1
+                continue
+            if not implicit_all_groups and not required.intersection(user_ags):
+                skipped_no_role_match += 1
+                continue
             row = dict(raw)
             row["_project"] = pname
             candidates.append(row)
 
     if not candidates:
+        _LOG.info(
+            "googledrive effective_mappings: included=%d names=%s "
+            "skipped_no_access_groups_configured=%d skipped_no_role_match=%d",
+            0,
+            [],
+            skipped_no_access_groups,
+            skipped_no_role_match,
+        )
         return result
 
     buckets: dict[str, dict[str, list[tuple[str, str, dict[str, Any]]]]] = {
@@ -187,4 +212,15 @@ def resolve_effective_mappings(
         out.append(clean)
 
     result.mappings = out
+    included_names = [
+        str(m.get("name") or "").strip() or "(unnamed)" for m in out
+    ]
+    _LOG.info(
+        "googledrive effective_mappings: included=%d names=%s "
+        "skipped_no_access_groups_configured=%d skipped_no_role_match=%d",
+        len(out),
+        included_names,
+        skipped_no_access_groups,
+        skipped_no_role_match,
+    )
     return result
