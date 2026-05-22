@@ -1,5 +1,6 @@
 # Runtime: Alpine container — NOT ubuntu-latest (see runbook § CI runtime).
-# Do not use actions/setup-python; the container image ships Python.
+# Release tags: bare package.py version (AYON canonical) — no "v" prefix.
+# Tags are created locally via create_tag_from_version.py; CI never mutates tags.
 name: Release Addon Package
 
 on:
@@ -12,7 +13,7 @@ on:
         default: false
   push:
     tags:
-      - "v*"
+      - "*"
 
 permissions:
   contents: write
@@ -32,7 +33,12 @@ jobs:
           NAME=$(python -c "ns={}; exec(open('package.py', encoding='utf-8').read(), ns); print(ns['name'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches package.py (tag push only)
+        if: github.event_name == 'push'
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          test "$TAG" = "${{ steps.meta.outputs.version }}"
 
       - name: Build addon zip
         run: python create_package.py --output dist
@@ -40,7 +46,7 @@ jobs:
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', steps.meta.outputs.version) || github.ref_name }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && steps.meta.outputs.version || github.ref_name }}
           name: ${{ steps.meta.outputs.name }} ${{ steps.meta.outputs.version }}
           draft: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true' }}
           generate_release_notes: true
