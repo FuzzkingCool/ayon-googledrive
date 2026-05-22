@@ -1,0 +1,34 @@
+# Optional: full-tree IP scan using PipelineEngineering config (private repos only).
+name: IP Guard
+
+on:
+  pull_request:
+    branches:
+      - "patched/**"
+      - develop
+      - production
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ip-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout PipelineEngineering (IP config + scanner)
+        uses: actions/checkout@v4
+        with:
+          repository: FuzzkingCool/PipelineEngineering
+          path: pipeline-engineering
+          fetch-depth: 1
+
+      - name: Scan repository
+        run: |
+          git add -A
+          python pipeline-engineering/scripts/utils/ip_protect_scan.py \
+            --staged \
+            --repo . \
+            --config-dir pipeline-engineering/config
