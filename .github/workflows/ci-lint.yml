@@ -1,4 +1,5 @@
-# Studio-private / non-spork: CI on develop (authoritative integration branch).
+# Studio-private / non-spork: CI on develop.
+# Runtime: Alpine container — NOT ubuntu-latest (see runbook § CI runtime).
 name: CI Lint
 
 on:
@@ -19,9 +20,13 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container:
+      image: python:3.12-alpine3.20
     steps:
       - uses: actions/checkout@v4
 
       - name: Ruff
-        uses: astral-sh/ruff-action@v3
+        run: |
+          pip install --no-cache-dir ruff
+          ruff check .

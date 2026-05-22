@@ -1,3 +1,5 @@
+# Runtime: Alpine container — NOT ubuntu-latest (see runbook § CI runtime).
+# Do not use actions/setup-python; the container image ships Python.
 name: Release Addon Package
 
 on:
@@ -17,20 +19,17 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container:
+      image: python:3.12-alpine3.20
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
       - name: Read addon version
         id: meta
         run: |
-          VERSION=$(python3 -c "ns={}; exec(open('package.py', encoding='utf-8').read(), ns); print(ns['version'])")
-          NAME=$(python3 -c "ns={}; exec(open('package.py', encoding='utf-8').read(), ns); print(ns['name'])")
+          VERSION=$(python -c "ns={}; exec(open('package.py', encoding='utf-8').read(), ns); print(ns['version'])")
+          NAME=$(python -c "ns={}; exec(open('package.py', encoding='utf-8').read(), ns); print(ns['name'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"

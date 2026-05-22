@@ -1,4 +1,4 @@
-# Optional: full-tree IP scan using PipelineEngineering config (private repos only).
+# IP scan on PRs — Alpine container (NOT ubuntu-latest).
 name: IP Guard
 
 on:
@@ -14,7 +14,9 @@ permissions:
 
 jobs:
   ip-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container:
+      image: python:3.12-alpine3.20
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +29,7 @@ jobs:
 
       - name: Scan repository
         run: |
+          apk add --no-cache git
           git add -A
           python pipeline-engineering/scripts/utils/ip_protect_scan.py \
             --staged \
