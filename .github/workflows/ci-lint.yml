@@ -24,7 +24,7 @@ jobs:
     container:
       image: python:3.12-alpine3.20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Ruff
         run: |

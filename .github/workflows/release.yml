@@ -24,7 +24,7 @@ jobs:
     container:
       image: python:3.12-alpine3.20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Read addon version
         id: meta
@@ -44,7 +44,7 @@ jobs:
         run: python create_package.py --output dist
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && steps.meta.outputs.version || github.ref_name }}
           name: ${{ steps.meta.outputs.name }} ${{ steps.meta.outputs.version }}
