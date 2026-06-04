@@ -190,27 +190,36 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
     def tray_exit(self):
         """Cleanup when tray is closing."""
-        # log.debug("Cleaning up Google Drive addon")
-        
         # Stop status update timer if running
         if hasattr(self, '_status_update_timer'):
             self._status_update_timer.stop()
             self._status_update_timer = None
-        
+
         # Stop monitoring thread if running
         self._stop_monitoring()
 
-        # Clean up any mappings
-        self._gdrive_manager.platform_handler.remove_all_mappings()
-        
-        # Clean up thread by setting it to None and stopping it
-        if self._monitor_thread:
-            self._monitor_thread.join()
-            self._monitor_thread = None
-        # notifications thread
-        if self._notification_thread:
-            self._notification_thread.join()
-            self._notification_thread = None
+        # Clean up any mappings (bounded — network volumes can stall unlink)
+        if self._gdrive_manager is not None:
+            cleanup = threading.Thread(
+                target=self._gdrive_manager.platform_handler.remove_all_mappings,
+                name="gdrive-remove-mappings",
+                daemon=True,
+            )
+            cleanup.start()
+            cleanup.join(timeout=15.0)
+            if cleanup.is_alive():
+                log.warning(
+                    "Google Drive mapping cleanup did not finish within 15s; "
+                    "continuing tray shutdown"
+                )
+
+        # Bounded join; _stop_monitoring already waits but threads may linger
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=5.0)
+        self._monitor_thread = None
+        if self._notification_thread and self._notification_thread.is_alive():
+            self._notification_thread.join(timeout=5.0)
+        self._notification_thread = None
 
     # Definition of Tray menu
     def tray_menu(self, tray_menu):
@@ -501,20 +510,12 @@ class GDriveAddon(AYONAddon, ITrayAddon):
 
     def _stop_monitoring(self):
         """Stop background monitoring."""
-        if self._monitor_thread and self._monitor_thread.is_alive():
-            # log.debug("Stopping Google Drive monitoring thread")
-            # Thread will terminate on its own at next check interval
-            # since we set self._monitoring = False
-            self._monitor_thread.join(timeout=5)  # Wait for thread to finish
-
-            # Check if the thread is 
-            # log.debug("Google Drive monitoring thread stopped")
-        else:
-            # log.debug("No monitoring thread to stop")
-            pass
-        # Clean up the thread reference
-        self._monitor_thread = None
         self._monitoring = False
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=5)  # Wait for thread to finish
+        else:
+            pass
+        self._monitor_thread = None
       
     def _monitor_googledrive(self):
         """Monitor Google Drive status in background thread."""
