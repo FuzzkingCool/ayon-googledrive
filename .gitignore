@@ -192,7 +192,7 @@ cython_debug/
 poetry.lock
 **/.vscode
 
-# >>> enforce_ignores_for_git_project.py - managed block (do not delete header/footer)
+# ---- Managed Ignores >>>
 
 # VSCode
 **/.venv
@@ -205,4 +205,4 @@ node_modules/
 
 # Tooling
 /.ruff_cache
-# <<< enforce_ignores_for_git_project.py
+# <<<  Managed Ignores ----
