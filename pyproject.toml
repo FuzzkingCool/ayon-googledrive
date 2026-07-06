@@ -7,7 +7,7 @@ license = { text = "Apache 2.0" }
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "ayon-python-api (>=1.1.0,<2.0.0)",
+    "ayon-python-api (>=1.2.22,<2.0.0)",
     "qtpy (>=2.4.3,<3.0.0)",
     "ayon (>=0.1.0,<0.2.0)",
 ]
@@ -25,10 +25,10 @@ package-mode = false
 pyblish = "^1.7.0"
 
 [tool.poetry.group.media.dependencies]
-pillow = "^12.2.0"
+pillow = "^12.3.0"
 
 [tool.poetry.group.pydantic.dependencies]
-pydantic = "^2.11.3"
+pydantic = "^2.13.4"
 
 
 [tool.poetry.group.openimageio.dependencies]
