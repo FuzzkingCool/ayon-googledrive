@@ -5,8 +5,10 @@ import threading
 import time
 
 from ayon_core.addon import AYONAddon, ITrayAddon
-from qtpy import QtCore, QtWidgets
+from ayon_core.tools.tray.ui.tray_menu_icons import apply_tray_menu_icon
+from qtpy import QtCore, QtGui, QtWidgets
 
+from ayon_googledrive.constants import ADDON_ROOT
 from ayon_googledrive.api.effective_mappings import resolve_effective_mappings
 from ayon_googledrive.api.gdrive_manager import GDriveManager
 from ayon_googledrive.logger import log
@@ -92,7 +94,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 time.sleep(1)
                 if self._gdrive_manager.is_googledrive_running(): 
                     # update ui thread
-                    QtCore.QTimer.singleShot(0, self._update_menu)
+                    QtCore.QTimer.singleShot(0, self._apply_menu_status_to_ui)
                     break
   
             # Now check if user is logged in and set up mappings if so
@@ -167,8 +169,11 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         if getattr(self, "_mapping_conflicts", None):
             QtCore.QTimer.singleShot(3000, self._show_mapping_conflict_dialog)
         
-        # Update menu contents now that tray is ready
-        QtCore.QTimer.singleShot(2000, self._update_menu)
+        # Warm status cache after tray is ready (never rebuild submenu on main thread).
+        QtCore.QTimer.singleShot(
+            2000,
+            lambda: self._schedule_submenu_status_refresh(self._menu),
+        )
         
         # Set up periodic status updates to ensure menu is always current
         self._status_update_timer = QtCore.QTimer()
@@ -234,79 +239,160 @@ class GDriveAddon(AYONAddon, ITrayAddon):
         # log.debug("Creating Google Drive tray menu")
         
         # Connect the aboutToShow signal to update the menu contents dynamically
-        menu.aboutToShow.connect(lambda: self._menu_builder.update_menu_contents(menu))
+        menu.aboutToShow.connect(
+            lambda menu_ref=menu: self._on_gdrive_submenu_about_to_show(menu_ref)
+        )
         
-        # CRITICAL: Connect to parent tray menu's aboutToShow to update our status immediately
-        # This fixes the issue where our submenu status isn't updated until mouseover
-        tray_menu.aboutToShow.connect(lambda: self._update_submenu_status(menu))
+        # Apply cached status when the root tray opens (must not block on path checks).
+        tray_menu.aboutToShow.connect(
+            lambda: self._apply_cached_submenu_status(menu)
+        )
         
         # Add our Google Drive menu to the tray menu
         tray_menu.addMenu(menu)
-        
+
+        gdrive_icon_path = os.path.join(ADDON_ROOT, "resources", "googledrive.png")
+        if os.path.exists(gdrive_icon_path):
+            apply_tray_menu_icon(menu.menuAction(), QtGui.QIcon(gdrive_icon_path))
+
         # Store a reference to our menu so notifications can find it
         if not hasattr(QtWidgets.QApplication, "_gdrive_menu"):
             QtWidgets.QApplication._gdrive_menu = menu
             
         # Store a reference to the menu for updates
         self._menu = menu
-        
-        # Initial update of the menu contents
-        QtCore.QTimer.singleShot(1000, lambda: self._menu_builder.update_menu_contents(menu))
-        
+        self._submenu_status_refresh_inflight = False
+
+        QtCore.QTimer.singleShot(
+            1000,
+            lambda menu_ref=menu: self._schedule_submenu_status_refresh(menu_ref),
+        )
+
+    def _on_gdrive_submenu_about_to_show(self, menu):
+        """Rebuild submenu only when the user opens the Google Drive submenu."""
+        time_start = time.perf_counter()
+        self._menu_builder.update_menu_contents(menu)
+        log.debug(
+            "Tray menu googledrive submenu rebuild took %.1f ms",
+            (time.perf_counter() - time_start) * 1000.0,
+        )
+
+    def _compute_submenu_status(self):
+        """Return ``(title, icon_type, update_contents)`` from live checks."""
+        time_start = time.perf_counter()
+        time_before_installed = time.perf_counter()
+        if not self._gdrive_manager.is_googledrive_installed():
+            installed_ms = (time.perf_counter() - time_before_installed) * 1000.0
+            log.debug(
+                "Tray menu googledrive status: installed=False installed_check=%.1f ms total=%.1f ms",
+                installed_ms,
+                (time.perf_counter() - time_start) * 1000.0,
+            )
+            return ("Google Drive: Not Installed", "error")
+        installed_ms = (time.perf_counter() - time_before_installed) * 1000.0
+
+        time_before_running = time.perf_counter()
+        if not self._gdrive_manager.is_googledrive_running():
+            running_ms = (time.perf_counter() - time_before_running) * 1000.0
+            log.debug(
+                "Tray menu googledrive status: running=False installed=%.1f ms "
+                "running=%.1f ms total=%.1f ms",
+                installed_ms,
+                running_ms,
+                (time.perf_counter() - time_start) * 1000.0,
+            )
+            return ("Google Drive: Not Running", "warning")
+        running_ms = (time.perf_counter() - time_before_running) * 1000.0
+
+        time_before_login = time.perf_counter()
+        if not self._gdrive_manager.is_user_logged_in():
+            login_ms = (time.perf_counter() - time_before_login) * 1000.0
+            log.debug(
+                "Tray menu googledrive status: login=False installed=%.1f ms "
+                "running=%.1f ms login=%.1f ms total=%.1f ms",
+                installed_ms,
+                running_ms,
+                login_ms,
+                (time.perf_counter() - time_start) * 1000.0,
+            )
+            return ("Google Drive: Login Required", "warning")
+        login_ms = (time.perf_counter() - time_before_login) * 1000.0
+
+        time_before_mappings = time.perf_counter()
+        has_all_mappings = self._check_mappings_quick()
+        mappings_ms = (time.perf_counter() - time_before_mappings) * 1000.0
+        log.debug(
+            "Tray menu googledrive status: mappings_ok=%s installed=%.1f ms "
+            "running=%.1f ms login=%.1f ms mappings=%.1f ms total=%.1f ms",
+            has_all_mappings,
+            installed_ms,
+            running_ms,
+            login_ms,
+            mappings_ms,
+            (time.perf_counter() - time_start) * 1000.0,
+        )
+        if has_all_mappings:
+            return ("Google Drive: Connected", "ok")
+        return ("Google Drive: Connection Issue", "warning")
+
+    def _apply_submenu_status(self, menu, status):
+        title, icon_type = status
+        self._last_known_status = (title, icon_type)
+        self._menu_builder._set_menu_status(menu, title, icon_type)
+
+    def _schedule_submenu_status_refresh(self, menu):
+        if getattr(self, "_submenu_status_refresh_inflight", False):
+            return
+        self._submenu_status_refresh_inflight = True
+
+        def _worker():
+            time_start = time.perf_counter()
+            try:
+                status = self._compute_submenu_status()
+            except Exception:
+                log.debug(
+                    "Tray menu googledrive status: error total=%.1f ms",
+                    (time.perf_counter() - time_start) * 1000.0,
+                    exc_info=True,
+                )
+                status = ("Google Drive: Error", "error")
+            finally:
+                self._submenu_status_refresh_inflight = False
+            log.debug(
+                "Tray menu googledrive background status took %.1f ms -> %s",
+                (time.perf_counter() - time_start) * 1000.0,
+                status[0],
+            )
+
+            def _apply():
+                self._apply_submenu_status(menu, status)
+
+            QtCore.QTimer.singleShot(0, _apply)
+
+        threading.Thread(
+            target=_worker,
+            daemon=True,
+            name="gdrive-tray-status",
+        ).start()
+
+    def _apply_cached_submenu_status(self, menu):
+        """Apply last-known Drive status when the root tray menu opens."""
+        time_start = time.perf_counter()
+        cached = self._last_known_status
+        if cached:
+            title, icon_type = cached
+            self._menu_builder._set_menu_status(menu, title, icon_type)
+        log.debug(
+            "Tray menu googledrive cached status: hit=%s total=%.1f ms",
+            cached is not None,
+            (time.perf_counter() - time_start) * 1000.0,
+        )
+        self._schedule_submenu_status_refresh(menu)
+
     def _update_submenu_status(self, menu):
-        """Update just the submenu title and icon when parent tray opens"""
-        # Only log occasionally to reduce spam
-        if not hasattr(self, '_last_submenu_log') or time.time() - self._last_submenu_log > 60:
-            # log.debug("Updating submenu status on parent tray aboutToShow")
-            self._last_submenu_log = time.time()
-        
-        # Perform a quick, non-blocking status check instead of relying on cache
-        try:
-            # Quick status check - prioritize speed over completeness
-            # This ensures the menu always shows current status when opened
-            
-            # Check installation first (fastest check)
-            if not self._gdrive_manager.is_googledrive_installed():
-                self._menu_builder._set_menu_status(menu, "Google Drive: Not Installed", "error")
-                # Force full menu update to show install option
-                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
-                return
-                
-            # Check if running (relatively fast check)
-            if not self._gdrive_manager.is_googledrive_running():
-                self._menu_builder._set_menu_status(menu, "Google Drive: Not Running", "warning")
-                # Force full menu update to show start option
-                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
-                return
-                
-            # Check if user is logged in (fast check)
-            if not self._gdrive_manager.is_user_logged_in():
-                self._menu_builder._set_menu_status(menu, "Google Drive: Login Required", "warning")
-                # Force full menu update to show login message
-                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
-                return
-            
-            # If we get here, Google Drive is installed, running, and logged in
-            # Now do a quick check of mappings (this is the slowest part but still fast)
-            has_all_mappings = self._check_mappings_quick()
-            
-            if has_all_mappings:
-                self._menu_builder._set_menu_status(menu, "Google Drive: Connected", "ok")
-                # Only update full menu if we haven't done so recently
-                if not hasattr(self, '_last_full_update') or time.time() - self._last_full_update > 60:
-                    QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
-                    self._last_full_update = time.time()
-            else:
-                self._menu_builder._set_menu_status(menu, "Google Drive: Connection Issue", "warning")
-                # Force full menu update to show mapping issues
-                QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
-                
-        except Exception as e:
-            # log.debug(f"Error updating submenu status: {e}")
-            self._menu_builder._set_menu_status(menu, "Google Drive: Error", "error")
-            # Force full menu update to show error details
-            QtCore.QTimer.singleShot(0, lambda: self._menu_builder.update_menu_contents(menu))
-    
+        """Refresh submenu title/icon from live Drive and mapping checks."""
+        self._schedule_submenu_status_refresh(menu)
+
     def _show_mapping_conflict_dialog(self):
         """Modal alert when projects disagree on source_path for the same target."""
         conflicts = getattr(self, "_mapping_conflicts", None) or []
@@ -370,10 +456,14 @@ class GDriveAddon(AYONAddon, ITrayAddon):
             # log.debug(f"Error in quick mappings check: {e}")
             return False
 
-    def _update_menu(self):
-        """Update menu contents if menu exists"""
-        if hasattr(self, '_menu') and self._menu:
-            self._menu_builder.update_menu_contents(self._menu)
+    def _apply_menu_status_to_ui(self):
+        """Update submenu title/icon on the main thread without path checks."""
+        menu = getattr(self, "_menu", None)
+        if not menu:
+            return
+        cached = self._last_known_status
+        if cached:
+            self._menu_builder._set_menu_status(menu, cached[0], cached[1])
 
     def _validate_googledrive(self):
         """Validate Google Drive mounting and paths."""
@@ -566,7 +656,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                             )
                         )
                         notified_not_installed = True
-                    QtCore.QTimer.singleShot(0, self._update_menu)
+                    QtCore.QTimer.singleShot(0, self._apply_menu_status_to_ui)
                     for _ in range(check_interval):
                         if not self._monitoring:
                             break
@@ -644,7 +734,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                         )
                         
                         # Immediately update the menu to reflect connection issue
-                        QtCore.QTimer.singleShot(0, self._update_menu)
+                        QtCore.QTimer.singleShot(0, self._apply_menu_status_to_ui)
                         
                         should_skip_restart = False
                         reason_for_skip = ""
@@ -685,7 +775,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                             unique_id="gdrive_resolve_failed"
                         )
                         # Update menu to reflect persistent error state
-                        QtCore.QTimer.singleShot(0, self._update_menu)
+                        QtCore.QTimer.singleShot(0, self._apply_menu_status_to_ui)
                         retry_count = 0 # Reset retry for next cycle after cooldown
                 else: # Process is running AND basic_drive_mount is True
                     retry_count = 0 # Reset retries as basic GDrive seems ok
@@ -695,7 +785,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                         log.warning("Google Drive is running and basic mount is present, but some configured mapping target paths are not accessible. Attempting to ensure consistent paths.")
                         self._gdrive_manager.ensure_consistent_paths() # Try to fix mappings
                         # Update menu to reflect mapping issues
-                        QtCore.QTimer.singleShot(0, self._update_menu)
+                        QtCore.QTimer.singleShot(0, self._apply_menu_status_to_ui)
                     else:
                         # Cache status for quick updates - everything is OK
                         self._last_known_status = ("Google Drive: Connected", "ok")
@@ -705,7 +795,7 @@ class GDriveAddon(AYONAddon, ITrayAddon):
                 menu_update_counter += 1
                 if menu_update_counter >= menu_update_interval:
                     menu_update_counter = 0
-                    QtCore.QTimer.singleShot(0, self._update_menu)
+                    QtCore.QTimer.singleShot(0, self._apply_menu_status_to_ui)
 
             except Exception as e:
                 log.error(f"Error in Google Drive monitoring thread: {e}", exc_info=True)
