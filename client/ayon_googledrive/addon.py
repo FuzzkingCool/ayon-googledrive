@@ -5,7 +5,7 @@ import threading
 import time
 
 from ayon_core.addon import AYONAddon, ITrayAddon
-from ayon_core.tools.tray.ui.tray_menu_icons import apply_tray_menu_icon
+from ayon_core.tools.tray.menu_icons import apply_tray_menu_icon
 from qtpy import QtCore, QtGui, QtWidgets
 
 from ayon_googledrive.constants import ADDON_ROOT
